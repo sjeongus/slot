@@ -19,7 +19,8 @@ x 0, y 27, 640 x 427. On the 720 x 480 devices a GBA game fills the screen.
 
 On the 640 x 480 devices the game moves up to y 0 when a bezel's clear window
 sits at the top, as it does under the AGS-102 frame. Leave the window where
-you want the game: at the top, or in the middle.
+you want the game: at the top, or in the middle. The window may be clear or
+semi-transparent (an LCD texture, say); only fully solid rows count as frame.
 
 The bezel is drawn over the game, so leave the game area transparent.
 Other sizes are scaled to fill and cropped from the centre. On the 640 x 480

@@ -3,6 +3,10 @@
 Releases of this fork are named after the upstream slot release they are built on, plus
 `-net.N`. Everything in upstream's [CHANGELOG.md](CHANGELOG.md) for that version is included.
 
+## [1.9.0-net.2](https://github.com/sjeongus/slot/releases/tag/v1.9.0-net.2)
+
+- Custom bezels with a semi-transparent screen, such as an LCD grid over the game, now move the game up to the screen when it is at the top, as clear ones already did. Only solid rows count as frame.
+
 ## [1.9.0-net.1](https://github.com/sjeongus/slot/releases/tag/v1.9.0-net.1)
 
 Based on slot [1.9.0](https://github.com/BrandonKowalski/slot/releases/tag/v1.9.0). See

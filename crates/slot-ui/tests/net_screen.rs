@@ -443,6 +443,7 @@ fn ach() -> slot_ui::AchView {
         state: "Logged in".into(),
         pending: 2,
         game: Some("12 of 40 unlocked".into()),
+        library: Some("38 of 40 saved".into()),
     }
 }
 
@@ -511,10 +512,10 @@ fn an_achievements_account_is_typed_in_two_steps() {
     );
     assert_eq!(n.page, NetPage::Achievements);
     n.ach = ach();
-    n.ach_row = 4;
+    n.ach_row = 5;
     assert_eq!(n.ach_row(), slot_ui::AchRow::Saved);
     assert_eq!(n.input(NetKey::A, &s), NetIntent::AchSend);
-    n.ach_row = 5;
+    n.ach_row = 6;
     assert_eq!(n.input(NetKey::A, &s), NetIntent::AchLogout);
 }
 

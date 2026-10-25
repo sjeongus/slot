@@ -49,6 +49,8 @@ impl Transport for Shared {
         let answer = match r {
             "login2" => LOGIN.to_string(),
             "achievementsets" => SETS.to_string(),
+            "unlocks" if body.contains("h=1") => r#"{"Success":true,"UserUnlocks":[]}"#.into(),
+            "unlocks" => r#"{"Success":true,"UserUnlocks":[5501]}"#.into(),
             "startsession" => {
                 r#"{"Success":true,"Unlocks":[],"HardcoreUnlocks":[],"ServerNow":1700000000}"#
                     .into()
@@ -236,5 +238,41 @@ fn earns_online_queues_offline_and_sends_later() {
         "it says how long ago it was earned: {sent}"
     );
     drop(asked);
+
+    // A game never played here, saved ahead of time from the library while online…
+    let other = dir.join("Roms").join("Other.gba");
+    std::fs::write(&other, vec![9u8; 4096]).unwrap();
+    slot_ach::set_library(vec![rom.clone(), other.clone()]);
+    until("the library to be saved", || {
+        let s = slot_ach::status();
+        s.library_total == 2 && s.library_ready == 2 && !s.library_saving
+    });
+    // …loads offline with the unlocks this account already has.
+    ONLINE.store(false, Ordering::Relaxed);
+    let mut core = Ram(Box::new([0u8; 0x8000]));
+    let mut session = Session::begin(&other, &mut core).expect("a session");
+    let events = frames_until(&mut session, "the saved game", |e| {
+        e.iter().any(|e| matches!(e, Event::GameLoaded { .. }))
+    });
+    assert!(
+        events.iter().any(|e| matches!(
+            e,
+            Event::GameLoaded {
+                unlocked: 1,
+                total: 2,
+                offline: true,
+                ..
+            }
+        )),
+        "{events:?}"
+    );
+    drop(session);
+
+    // A game that was never saved says so, rather than that it has no achievements.
+    let unsaved = dir.join("Roms").join("New.gba");
+    std::fs::write(&unsaved, vec![3u8; 4096]).unwrap();
+    let mut session = Session::begin(&unsaved, &mut core).expect("a session");
+    frames_until(&mut session, "the answer", |e| e.contains(&Event::NotSaved));
+    drop(session);
     let _ = std::fs::remove_dir_all(&dir);
 }

@@ -112,7 +112,13 @@ Notes:
   - Back online, saved unlocks are sent oldest first, each with how long ago it was earned
     (RetroAchievements accepts up to 14 days). **Saved Unlocks** shows how many are waiting;
     A sends them now.
-  - A game never played online has nothing to load offline.
+  - **Offline Games** saves every game on the card ahead of time. While slot is online, logged
+    in and not running a game, it works through the card's ROMs in the background: each one's
+    achievement set and your unlocks in it, at most 100 new games per half hour. The row shows
+    how many are saved. Each ROM is hashed once (`Config/achievements/hashes.txt`) and again
+    only if the file changes.
+  - A game that was not saved yet says "Not saved for offline play yet" offline; one that
+    RetroAchievements does not know says "None for this game".
 - Loading a state or rewinding restarts achievement tracking from that point, as RetroArch does
   in softcore.
 - Requests go through BaseOS's own `curl`, with its CA certificates.

@@ -7,6 +7,7 @@
 
 #include "rc_client.h"
 #include "rc_api_runtime.h"
+#include "rc_api_user.h"
 #include "rc_api_request.h"
 #include "rc_hash.h"
 #include "rc_libretro.h"
@@ -296,4 +297,41 @@ int slot_rc_award_request(const char* user, const char* token, uint32_t id, cons
   }
   rc_api_destroy_request(&request);
   return result == RC_OK;
+}
+
+static int copy_request(int result, rc_api_request_t* request, char* url, size_t url_size,
+                        char* post, size_t post_size) {
+  if (result == RC_OK) {
+    snprintf(url, url_size, "%s", request->url);
+    snprintf(post, post_size, "%s", request->post_data ? request->post_data : "");
+  }
+  rc_api_destroy_request(request);
+  return result == RC_OK;
+}
+
+/* The achievement-set request for a hash, as rc_client would make it when loading a game. */
+int slot_rc_sets_request(const char* user, const char* token, const char* hash,
+                         char* url, size_t url_size, char* post, size_t post_size) {
+  rc_api_fetch_game_sets_request_t params;
+  rc_api_request_t request;
+  memset(&params, 0, sizeof(params));
+  params.username = user;
+  params.api_token = token;
+  params.game_hash = hash;
+  return copy_request(rc_api_init_fetch_game_sets_request(&request, &params), &request,
+                      url, url_size, post, post_size);
+}
+
+/* The account's unlocks in one game. */
+int slot_rc_unlocks_request(const char* user, const char* token, uint32_t game_id, int hardcore,
+                            char* url, size_t url_size, char* post, size_t post_size) {
+  rc_api_fetch_user_unlocks_request_t params;
+  rc_api_request_t request;
+  memset(&params, 0, sizeof(params));
+  params.username = user;
+  params.api_token = token;
+  params.game_id = game_id;
+  params.hardcore = hardcore ? 1 : 0;
+  return copy_request(rc_api_init_fetch_user_unlocks_request(&request, &params), &request,
+                      url, url_size, post, post_size);
 }

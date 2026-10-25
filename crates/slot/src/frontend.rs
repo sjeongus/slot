@@ -228,6 +228,14 @@ impl Frontend {
                 build.version
             ),
         );
+        // While online, save every game's achievements so they also work offline.
+        slot_ach::set_library(
+            slot_store::scan(root)
+                .unwrap_or_default()
+                .into_iter()
+                .map(|c| c.rom)
+                .collect(),
+        );
     }
 
     fn upload_paper(compositor: &mut Compositor) {

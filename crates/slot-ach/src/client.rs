@@ -80,6 +80,25 @@ extern "C" {
         total: *mut u32,
     ) -> c_int;
     fn slot_rc_each_badge();
+    fn slot_rc_sets_request(
+        user: *const c_char,
+        token: *const c_char,
+        hash: *const c_char,
+        url: *mut c_char,
+        url_size: usize,
+        post: *mut c_char,
+        post_size: usize,
+    ) -> c_int;
+    fn slot_rc_unlocks_request(
+        user: *const c_char,
+        token: *const c_char,
+        game_id: u32,
+        hardcore: c_int,
+        url: *mut c_char,
+        url_size: usize,
+        post: *mut c_char,
+        post_size: usize,
+    ) -> c_int;
     fn slot_rc_award_request(
         user: *const c_char,
         token: *const c_char,
@@ -122,7 +141,27 @@ enum Job {
     Request(Request),
     Badges(Vec<String>),
     Flush,
+    /// The card's ROMs, to save for offline play while online.
+    Library(Vec<PathBuf>),
 }
+
+/// Saving the library for offline play: where the pass has got to, and the rate limit.
+#[derive(Default)]
+struct Library {
+    roms: Vec<PathBuf>,
+    next: usize,
+    /// A ROM this pass could not finish (offline, logged out, or over the limit).
+    unfinished: bool,
+    /// When the next pass may start.
+    rest_until: Option<Instant>,
+    /// Games fetched in the current half hour, and when it began.
+    window: Option<(Instant, u32)>,
+}
+
+/// Like RAOfflineProxy, go easy on the server: at most this many new games per half hour.
+const LIBRARY_PER_WINDOW: u32 = 100;
+const LIBRARY_WINDOW: Duration = Duration::from_secs(30 * 60);
+const LIBRARY_REST: Duration = Duration::from_secs(60);
 
 /// What C callbacks recorded, for [`Core::settle`].
 #[derive(Default)]
@@ -148,6 +187,8 @@ pub(crate) struct Core {
     online: fn() -> bool,
     /// A password login is waiting for its answer; on failure the old token stays.
     password_login: AtomicBool,
+    /// The hash of the game last asked to load, to tell "not saved for offline" apart.
+    last_hash: Mutex<String>,
 }
 
 static CORE: OnceLock<Arc<Core>> = OnceLock::new();
@@ -197,6 +238,9 @@ pub(crate) fn start(root: &Path, transport: Box<dyn Transport>, online: fn() -> 
         user: Some(settings.user.clone()).filter(|u| !u.is_empty()),
         pending: store.pending().len(),
         game: None,
+        library_total: 0,
+        library_ready: 0,
+        library_saving: false,
         generation: 1,
     };
     let core = Arc::new(Core {
@@ -211,6 +255,7 @@ pub(crate) fn start(root: &Path, transport: Box<dyn Transport>, online: fn() -> 
         game_active: AtomicBool::new(false),
         online,
         password_login: AtomicBool::new(false),
+        last_hash: Mutex::new(String::new()),
     });
     if CORE.set(core.clone()).is_err() {
         return;
@@ -310,6 +355,10 @@ impl Core {
         Store::new(&self.root).forget_login(&user);
         self.save_settings(|s| s.token.clear());
         self.update(|st| st.account = Account::LoggedOut);
+    }
+
+    pub(crate) fn set_library(&self, roms: Vec<PathBuf>) {
+        let _ = lock(&self.jobs).send(Job::Library(roms));
     }
 
     pub(crate) fn send_now(&self) {
@@ -417,7 +466,10 @@ impl Core {
             self.update(|st| st.game = game);
             return;
         }
+        let hash = lock(&self.last_hash).clone();
+        let saved = Store::new(&self.root).has_sets(&hash);
         let event = match result {
+            _ if !(self.online)() && !saved => Event::NotSaved,
             -29 => Event::NoAchievements,
             _ => Event::GameFailed(match error {
                 "" => "Could not load achievements".into(),
@@ -494,20 +546,21 @@ impl Core {
     fn run(self: Arc<Self>, proxy: Proxy, rx: Receiver<Job>) {
         let started = Instant::now();
         let mut flushed: Option<Instant> = None;
+        let mut library = Library::default();
         loop {
             match rx.recv_timeout(Duration::from_millis(100)) {
                 Ok(Job::Load { console, path }) => {
-                    let mut hash = [0u8; 33];
-                    // SAFETY: a path in, a 33-byte buffer out; no client state.
-                    let ok =
-                        unsafe { slot_rc_hash(console, path.as_ptr(), hash.as_mut_ptr().cast()) };
+                    let rom = PathBuf::from(path.to_string_lossy().into_owned());
+                    let hash = rom_hash(&proxy.store, console, &rom);
+                    *lock(&self.last_hash) = hash.clone().unwrap_or_default();
                     let _c = lock(&self.c);
                     if !self.game_active.load(Ordering::Acquire) {
                         continue;
                     }
-                    if ok != 0 {
+                    if let Some(hash) = hash {
+                        let hash = cstr(&hash);
                         // SAFETY: under the lock; rcheevos copies the hash.
-                        unsafe { slot_rc_load_hash(hash.as_ptr().cast()) };
+                        unsafe { slot_rc_load_hash(hash.as_ptr()) };
                     } else {
                         lock(&self.raised).load = Some((-29, String::new()));
                         self.settle();
@@ -534,6 +587,13 @@ impl Core {
                     flushed = Some(Instant::now());
                     self.flush(&proxy);
                 }
+                Ok(Job::Library(roms)) => {
+                    library = Library {
+                        roms,
+                        ..Library::default()
+                    };
+                    self.count_library(&proxy, &library, false);
+                }
                 Err(RecvTimeoutError::Timeout) => {}
                 Err(RecvTimeoutError::Disconnected) => return,
             }
@@ -545,11 +605,116 @@ impl Core {
                     self.login_with_token();
                 }
             }
+            if !self.game_active.load(Ordering::Acquire) {
+                self.library_step(&proxy, &mut library);
+            }
             let due = flushed.is_none_or(|t| t.elapsed() > Duration::from_secs(30));
             if due && (self.online)() {
                 flushed = Some(Instant::now());
                 self.flush(&proxy);
             }
+        }
+    }
+
+    /// Counts how much of the library is saved for offline play, for the Achievements page.
+    fn count_library(&self, proxy: &Proxy, library: &Library, saving: bool) {
+        let total = library.roms.len();
+        let ready = library
+            .roms
+            .iter()
+            .filter(|rom| {
+                proxy
+                    .store
+                    .known_hash(rom)
+                    .is_some_and(|h| proxy.store.has_sets(&h))
+            })
+            .count();
+        self.update(|st| {
+            st.library_total = total;
+            st.library_ready = ready;
+            st.library_saving = saving;
+        });
+    }
+
+    /// One ROM of the library: hash it, then, online, save its achievement set and this
+    /// account's unlocks in it. Called between other work, one ROM at a time.
+    fn library_step(&self, proxy: &Proxy, library: &mut Library) {
+        if library.roms.is_empty() || library.rest_until.is_some_and(|t| Instant::now() < t) {
+            return;
+        }
+        // Nothing to save for, and no reason to read every ROM: wait for achievements.
+        let s = self.settings();
+        if !s.enabled || s.token.is_empty() {
+            library.rest_until = Some(Instant::now() + LIBRARY_REST);
+            return;
+        }
+        if library.next >= library.roms.len() {
+            library.next = 0;
+            let again = std::mem::take(&mut library.unfinished);
+            library.rest_until = Some(Instant::now() + LIBRARY_REST);
+            if !again {
+                // Everything is saved; look again only when the library changes.
+                library.rest_until = Some(Instant::now() + Duration::from_secs(24 * 3600));
+            }
+            self.count_library(proxy, library, false);
+            return;
+        }
+        let rom = library.roms[library.next].clone();
+        library.next += 1;
+        let Some(console) = crate::console_for(&rom) else {
+            return;
+        };
+        let Some(hash) = rom_hash(&proxy.store, console, &rom) else {
+            return;
+        };
+        let need_sets = !proxy.store.has_sets(&hash);
+        let game = proxy.store.game_id(&hash).unwrap_or(0);
+        let need_unlocks = !need_sets && game != 0 && !proxy.store.has_unlocks(&hash);
+        if !need_sets && !need_unlocks {
+            return;
+        }
+        let window = library.window.get_or_insert((Instant::now(), 0));
+        if window.0.elapsed() > LIBRARY_WINDOW {
+            *window = (Instant::now(), 0);
+        }
+        if !s.enabled || s.token.is_empty() || !(self.online)() || window.1 >= LIBRARY_PER_WINDOW {
+            library.unfinished = true;
+            return;
+        }
+        if need_sets {
+            window.1 += 1;
+            self.update(|st| st.library_saving = true);
+            let Some((url, body)) = sets_request(&s.user, &s.token, &hash) else {
+                return;
+            };
+            proxy.serve(&url, &body, "application/x-www-form-urlencoded", true);
+            if !proxy.store.has_sets(&hash) {
+                library.unfinished = true;
+                return;
+            }
+        }
+        let game = proxy.store.game_id(&hash).unwrap_or(0);
+        if game != 0 && !proxy.store.has_unlocks(&hash) {
+            let mut got = crate::store::Unlocks::default();
+            for hardcore in [false, true] {
+                let Some((url, body)) = unlocks_request(&s.user, &s.token, game, hardcore) else {
+                    return;
+                };
+                let answer = proxy.serve(&url, &body, "application/x-www-form-urlencoded", true);
+                let Some(ids) = user_unlocks(&answer.body) else {
+                    library.unfinished = true;
+                    return;
+                };
+                let list = ids.into_iter().map(|id| (id, 0));
+                match hardcore {
+                    false => got.softcore.extend(list),
+                    true => got.hardcore.extend(list),
+                }
+            }
+            proxy.store.merge_unlocks(&hash, &got);
+        }
+        if library.next.is_multiple_of(10) || library.next == library.roms.len() {
+            self.count_library(proxy, library, true);
         }
     }
 
@@ -634,6 +799,81 @@ fn game_info() -> Option<GameProgress> {
         unlocked,
         total,
     })
+}
+
+/// A ROM's RetroAchievements hash: from the index if the file is unchanged, else worked out
+/// (which reads the whole ROM) and remembered.
+fn rom_hash(store: &Store, console: u32, rom: &Path) -> Option<String> {
+    if let Some(hash) = store.known_hash(rom) {
+        return Some(hash);
+    }
+    let path = rom.to_str().map(cstr)?;
+    let mut hash = [0u8; 33];
+    // SAFETY: a path in, a 33-byte buffer out; touches no client state.
+    let ok = unsafe { slot_rc_hash(console, path.as_ptr(), hash.as_mut_ptr().cast()) } != 0;
+    let hash = buf_str(&hash);
+    if !ok || hash.is_empty() {
+        return None;
+    }
+    store.remember_hash(rom, &hash);
+    Some(hash)
+}
+
+fn request_with(
+    f: impl FnOnce(*mut c_char, usize, *mut c_char, usize) -> c_int,
+) -> Option<(String, String)> {
+    let (mut url, mut post) = (vec![0u8; 256], vec![0u8; 1024]);
+    let ok = f(
+        url.as_mut_ptr().cast(),
+        url.len(),
+        post.as_mut_ptr().cast(),
+        post.len(),
+    ) != 0;
+    ok.then(|| (buf_str(&url), buf_str(&post)))
+}
+
+fn sets_request(user: &str, token: &str, hash: &str) -> Option<(String, String)> {
+    let (u, t, h) = (cstr(user), cstr(token), cstr(hash));
+    // SAFETY: plain strings in, buffers as long as we say; touches no client state.
+    request_with(|url, us, post, ps| unsafe {
+        slot_rc_sets_request(u.as_ptr(), t.as_ptr(), h.as_ptr(), url, us, post, ps)
+    })
+}
+
+fn unlocks_request(user: &str, token: &str, game: u32, hardcore: bool) -> Option<(String, String)> {
+    let (u, t) = (cstr(user), cstr(token));
+    // SAFETY: plain strings in, buffers as long as we say; touches no client state.
+    request_with(|url, us, post, ps| unsafe {
+        slot_rc_unlocks_request(
+            u.as_ptr(),
+            t.as_ptr(),
+            game,
+            hardcore as c_int,
+            url,
+            us,
+            post,
+            ps,
+        )
+    })
+}
+
+/// The achievement ids in an "unlocks" answer.
+fn user_unlocks(body: &str) -> Option<Vec<u32>> {
+    let j = slot_net::json::Json::parse(body)?;
+    if j.get("Success").as_bool() != Some(true) {
+        return None;
+    }
+    Some(
+        j.get("UserUnlocks")
+            .as_array()
+            .unwrap_or(&[])
+            .iter()
+            .filter_map(|v| match v {
+                slot_net::json::Json::Num(n) => Some(*n as u32),
+                _ => None,
+            })
+            .collect(),
+    )
 }
 
 fn award_request(

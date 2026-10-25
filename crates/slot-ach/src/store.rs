@@ -7,6 +7,8 @@
 //!   starts with them unlocked.
 //! - `pending.txt`: unlocks earned offline, waiting to be sent, oldest first.
 //! - `badges/<name>.png`: achievement and game images.
+//! - `hashes.txt`: each ROM's RetroAchievements hash, by path, size and time, so a library is
+//!   hashed once.
 
 use std::path::{Path, PathBuf};
 
@@ -27,6 +29,8 @@ pub struct Unlocks {
 
 pub struct Store {
     dir: PathBuf,
+    /// `hashes.txt`, read once: file key to hash.
+    index: std::sync::Mutex<Option<std::collections::HashMap<String, String>>>,
 }
 
 /// Hashes and user names become file names; keep only what is safe in one.
@@ -36,6 +40,18 @@ fn safe(s: &str) -> String {
         .collect::<String>()
         .trim_start_matches('.')
         .to_ascii_lowercase()
+}
+
+/// A ROM's path, size and modification time: unchanged means its hash is too.
+fn file_key(rom: &Path) -> Option<String> {
+    let meta = std::fs::metadata(rom).ok()?;
+    let secs = meta
+        .modified()
+        .ok()?
+        .duration_since(std::time::UNIX_EPOCH)
+        .ok()?
+        .as_secs();
+    Some(format!("{}\t{}\t{secs}", rom.to_string_lossy(), meta.len()))
 }
 
 fn write_atomic(path: &Path, text: &str) -> std::io::Result<()> {
@@ -51,6 +67,7 @@ impl Store {
     pub fn new(root: &Path) -> Store {
         Store {
             dir: root.join("Config").join("achievements"),
+            index: std::sync::Mutex::new(None),
         }
     }
 
@@ -88,6 +105,67 @@ impl Store {
 
     pub fn sets(&self, hash: &str) -> Option<String> {
         std::fs::read_to_string(self.sets_path(hash)).ok()
+    }
+
+    pub fn has_sets(&self, hash: &str) -> bool {
+        self.sets_path(hash).is_file()
+    }
+
+    /// The game a saved set belongs to; 0 if RetroAchievements did not know the ROM.
+    pub fn game_id(&self, hash: &str) -> Option<u32> {
+        let j = slot_net::json::Json::parse(&self.sets(hash)?)?;
+        match j.get("GameId") {
+            slot_net::json::Json::Num(n) => Some(*n as u32),
+            _ => Some(0),
+        }
+    }
+
+    pub fn has_unlocks(&self, hash: &str) -> bool {
+        self.unlocks_path(hash).is_file()
+    }
+
+    fn index_path(&self) -> PathBuf {
+        self.dir.join("hashes.txt")
+    }
+
+    fn with_index<R>(
+        &self,
+        f: impl FnOnce(&mut std::collections::HashMap<String, String>) -> R,
+    ) -> R {
+        let mut index = self.index.lock().unwrap_or_else(|p| p.into_inner());
+        let map = index.get_or_insert_with(|| {
+            std::fs::read_to_string(self.index_path())
+                .unwrap_or_default()
+                .lines()
+                .filter_map(|l| {
+                    let (k, hash) = l.rsplit_once('\t')?;
+                    Some((k.to_string(), hash.to_string()))
+                })
+                .collect()
+        });
+        f(map)
+    }
+
+    /// The saved hash of `rom`, if the file has not changed since it was hashed.
+    pub fn known_hash(&self, rom: &Path) -> Option<String> {
+        let key = file_key(rom)?;
+        self.with_index(|m| m.get(&key).cloned())
+    }
+
+    pub fn remember_hash(&self, rom: &Path, hash: &str) {
+        let Some(key) = file_key(rom) else {
+            return;
+        };
+        let path = format!("{}\t", rom.to_string_lossy());
+        let text = self.with_index(|m| {
+            // One entry per ROM: drop what an older copy of this file left.
+            m.retain(|k, _| !k.starts_with(&path));
+            m.insert(key, hash.to_string());
+            let mut lines: Vec<String> = m.iter().map(|(k, h)| format!("{k}\t{h}\n")).collect();
+            lines.sort();
+            lines.concat()
+        });
+        let _ = write_atomic(&self.index_path(), &text);
     }
 
     fn unlocks_path(&self, hash: &str) -> PathBuf {
@@ -266,6 +344,26 @@ pub(crate) mod tests {
         let u = s.unlocks("abc");
         assert_eq!(u.softcore, [(1, 10), (2, 20)]);
         assert_eq!(u.hardcore, [(3, 30)]);
+    }
+
+    #[test]
+    fn a_rom_is_hashed_once_until_it_changes() {
+        let (d, s) = store();
+        let rom = d.0.join("Game.gba");
+        std::fs::write(&rom, b"one").unwrap();
+        assert_eq!(s.known_hash(&rom), None);
+        s.remember_hash(&rom, "aaa");
+        assert_eq!(s.known_hash(&rom).as_deref(), Some("aaa"));
+        assert_eq!(
+            Store::new(&d.0).known_hash(&rom).as_deref(),
+            Some("aaa"),
+            "kept on the card"
+        );
+        std::fs::write(&rom, b"longer now").unwrap();
+        assert_eq!(s.known_hash(&rom), None, "a changed file is hashed again");
+        s.remember_hash(&rom, "bbb");
+        let index = std::fs::read_to_string(s.dir().join("hashes.txt")).unwrap();
+        assert_eq!(index.lines().count(), 1, "one line per ROM: {index}");
     }
 
     #[test]

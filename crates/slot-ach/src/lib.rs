@@ -51,6 +51,11 @@ pub struct AchStatus {
     pub pending: usize,
     /// The game being played, once its achievements have loaded.
     pub game: Option<GameProgress>,
+    /// ROMs on the card, and how many of them are saved for offline play.
+    pub library_total: usize,
+    pub library_ready: usize,
+    /// Saving them now.
+    pub library_saving: bool,
     pub generation: u64,
 }
 
@@ -62,6 +67,9 @@ impl Default for AchStatus {
             account: Account::LoggedOut,
             pending: 0,
             game: None,
+            library_total: 0,
+            library_ready: 0,
+            library_saving: false,
             generation: 0,
         }
     }
@@ -83,6 +91,8 @@ pub enum Event {
     },
     /// RetroAchievements has no achievements for this ROM.
     NoAchievements,
+    /// Offline, and this game's achievements were not saved while online.
+    NotSaved,
     GameFailed(String),
     Unlocked {
         title: String,
@@ -137,6 +147,14 @@ pub fn login(user: &str, password: &str) {
 pub fn logout() {
     if let Some(c) = client::core() {
         c.logout();
+    }
+}
+
+/// The card's ROMs. While online and logged in, slot saves each one's achievements for
+/// offline play in the background, a few at a time and never during a game.
+pub fn set_library(roms: Vec<PathBuf>) {
+    if let Some(c) = client::core() {
+        c.set_library(roms);
     }
 }
 

@@ -75,6 +75,8 @@ pub struct AchView {
     pub pending: usize,
     /// The game being played, as "3 of 40 unlocked".
     pub game: Option<String>,
+    /// How many of the card's games are saved for offline play, as "12 of 40 saved".
+    pub library: Option<String>,
 }
 
 #[derive(Copy, Clone, PartialEq, Eq, Debug)]
@@ -254,6 +256,8 @@ pub enum AchRow {
     Account,
     Status,
     Game,
+    /// Games whose achievements are saved for offline play.
+    Library,
     /// Unlocks saved offline; A sends them now.
     Saved,
     LogOut,
@@ -264,6 +268,9 @@ impl AchRow {
         let mut rows = vec![AchRow::Achievements, AchRow::Account, AchRow::Status];
         if ach.game.is_some() {
             rows.push(AchRow::Game);
+        }
+        if ach.library.is_some() {
+            rows.push(AchRow::Library);
         }
         rows.push(AchRow::Saved);
         if ach.logged_in {
@@ -278,6 +285,7 @@ impl AchRow {
             AchRow::Account => "Account",
             AchRow::Status => "Status",
             AchRow::Game => "Game",
+            AchRow::Library => "Offline Games",
             AchRow::Saved => "Saved Unlocks",
             AchRow::LogOut => "Log Out",
         }
@@ -289,6 +297,7 @@ impl AchRow {
             AchRow::Account => Shown::Text(ach.user.clone().unwrap_or_else(|| "Log in".into())),
             AchRow::Status => Shown::Text(ach_text(ach)),
             AchRow::Game => Shown::Text(ach.game.clone().unwrap_or_default()),
+            AchRow::Library => Shown::Text(ach.library.clone().unwrap_or_default()),
             AchRow::Saved => Shown::Text(match ach.pending {
                 0 => "None".into(),
                 1 => "1 to send".into(),

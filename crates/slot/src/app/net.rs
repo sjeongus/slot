@@ -79,6 +79,11 @@ fn notice_for(event: slot_ach::Event, on_network: bool) -> Option<Notice> {
             )
         },
         Event::NoAchievements => n("Achievements", "None for this game".into(), None),
+        Event::NotSaved => n(
+            "Achievements",
+            "Not saved for offline play yet".into(),
+            Some("Saved the next time slot is online".into()),
+        ),
         Event::GameFailed(e) => n("Achievements", e, None),
         Event::Unlocked {
             title,
@@ -128,6 +133,10 @@ fn ach_view(s: &slot_ach::AchStatus) -> AchView {
             .game
             .as_ref()
             .map(|g| format!("{} of {} unlocked", g.unlocked, g.total)),
+        library: (s.library_total > 0).then(|| match s.library_saving {
+            true => format!("Saving {} of {}…", s.library_ready, s.library_total),
+            false => format!("{} of {} saved", s.library_ready, s.library_total),
+        }),
     }
 }
 

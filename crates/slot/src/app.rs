@@ -34,6 +34,8 @@ use slot_store::{
     Binding, CarouselKeys, Controls, Device, GameButton, Modifier, ShortcutKeys, LID_OFF_MIN,
 };
 
+mod net;
+
 pub const RECORDING: &str = "Recording";
 pub const CLASH_MARK: &str = "!";
 
@@ -289,6 +291,8 @@ pub enum Phase {
         cart: String,
     },
     About,
+    /// Settings > Network, drawn and driven by app/net.rs.
+    Network,
     Doze {
         cart: Option<String>,
     },
@@ -472,6 +476,7 @@ pub struct App {
     shot_opens: u64,
     shot_tick_face: Option<(TexId, u32, u32)>,
     delete_shot_text: Option<[(TexId, u32, u32); 2]>,
+    net: net::NetUi,
 }
 
 const FACE_AHEAD: i32 = 8;
@@ -666,6 +671,7 @@ impl App {
             battery: None,
             last_led: None,
             powering_off: false,
+            net: net::NetUi::default(),
         }
     }
 
@@ -854,6 +860,7 @@ impl App {
                 _ => !vertical,
             },
             Phase::Playing { .. } => vertical && self.in_game_menu.is_some(),
+            Phase::Network => true,
             _ => false,
         }
     }
@@ -1172,6 +1179,7 @@ impl App {
             }),
             QuickRow::DateTime
             | QuickRow::About
+            | QuickRow::Network
             | QuickRow::Screen
             | QuickRow::Game
             | QuickRow::Wallpaper
@@ -2299,6 +2307,7 @@ impl App {
 
     pub fn repair(&mut self) {
         self.settle_saves();
+        self.shutdown_net();
         if let Some(power) = &mut self.power {
             power.repair_card();
         }
@@ -2318,6 +2327,7 @@ impl App {
 
     pub fn restart(&mut self) {
         self.settle_saves();
+        self.shutdown_net();
         if let Some(power) = &mut self.power {
             power.restart();
         }
@@ -2444,6 +2454,7 @@ impl App {
 
     pub fn poweroff(&mut self) {
         self.settle_saves();
+        self.shutdown_net();
         if let Some(power) = &mut self.power {
             power.poweroff();
         }
@@ -2609,6 +2620,7 @@ impl App {
                 }
             }
             Phase::About if action == Action::GbaDown(Btn::X) => self.begin_restart(),
+            Phase::Network => self.network_input(action),
             Phase::QuickMenu { row } => self.quick_menu_input(row, action),
             _ => {}
         }
@@ -2741,6 +2753,7 @@ impl App {
                 self.phase = clock_screen(self.utc_secs(), self.state.utc_offset_min, true);
             }
             QuickRow::About => self.phase = Phase::About,
+            QuickRow::Network => self.open_network(),
             QuickRow::Screen
             | QuickRow::ScreenGeneral
             | QuickRow::Game
@@ -2964,6 +2977,7 @@ impl App {
             | QuickRow::ShowTitles
             | QuickRow::DateTime
             | QuickRow::About
+            | QuickRow::Network
             | QuickRow::Screen
             | QuickRow::Game
             | QuickRow::Resume
@@ -3261,6 +3275,7 @@ impl App {
 
     pub fn update(&mut self, dt: f32) {
         self.clock += dt as f64 * 1000.0;
+        self.sync_net();
         if self.name_pending && self.shelf_platform.face.is_some() {
             self.name_pending = false;
             self.shelf_named = Some(self.now());
@@ -3997,6 +4012,7 @@ impl App {
                 self.draw_menu_footer(out);
                 return;
             }
+            Phase::Network => return self.draw_network(out),
             Phase::Inserting { .. } if self.powering_up() && self.framed_panel() => {
                 self.draw_powering(out)
             }

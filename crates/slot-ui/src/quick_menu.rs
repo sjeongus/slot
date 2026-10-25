@@ -95,10 +95,11 @@ pub enum QuickRow {
     AutoLoad,
     UndoSave,
     UndoLoad,
+    Network,
 }
 
 impl QuickRow {
-    pub const ALL: [QuickRow; 84] = [
+    pub const ALL: [QuickRow; 85] = [
         QuickRow::FastForward,
         QuickRow::FastForwardSound,
         QuickRow::Screen,
@@ -183,13 +184,15 @@ impl QuickRow {
         QuickRow::AutoLoad,
         QuickRow::UndoSave,
         QuickRow::UndoLoad,
+        QuickRow::Network,
     ];
 
-    pub const MAIN: [QuickRow; 5] = [
+    pub const MAIN: [QuickRow; 6] = [
         QuickRow::General,
         QuickRow::Screen,
         QuickRow::Game,
         QuickRow::Controls,
+        QuickRow::Network,
         QuickRow::About,
     ];
 
@@ -457,6 +460,7 @@ impl QuickRow {
             QuickRow::BlueLight | QuickRow::PlayBlueLight => "Blue Light",
             QuickRow::DateTime => "Date & Time",
             QuickRow::About => "About",
+            QuickRow::Network => "Network",
             QuickRow::GbaShader => "Shader",
             QuickRow::GbShader => "Shader",
             QuickRow::GbcShader => "Shader",
@@ -537,6 +541,7 @@ impl QuickRow {
             self,
             QuickRow::DateTime
                 | QuickRow::About
+                | QuickRow::Network
                 | QuickRow::Screen
                 | QuickRow::Game
                 | QuickRow::Resume

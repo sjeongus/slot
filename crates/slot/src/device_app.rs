@@ -129,6 +129,7 @@ pub fn run() {
     slot::boot_time::mark("audio");
     let mut frontend = Frontend::boot_with(Box::new(platform), sink);
     slot::boot_time::mark("frontend");
+    frontend.start_network(&root);
     let target = slot::baseos::var("BASEOS_TARGET").unwrap_or_default();
     frontend.set_left_stick(slot::input::evdev::has_left_stick(&target));
     frontend.upload_boot_faces(&mut compositor);
@@ -169,6 +170,7 @@ pub fn run() {
         if slot::crash::stopping() {
             eprintln!("slot: told to stop, saving first");
             frontend.stop();
+            frontend.stop_network();
             return;
         }
         frontend.step_emulator(pacer.period, STEP_TIMEOUT);

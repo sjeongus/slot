@@ -19,9 +19,13 @@ struct Slot {
 
 impl Slot {
     fn new() -> Self {
+        let mut frontend = Frontend::boot(Box::new(SimPlatform::new()));
+        if let Some(root) = frontend.app().root().map(std::path::Path::to_path_buf) {
+            frontend.start_network(&root);
+        }
         Slot {
             gfx: None,
-            frontend: Frontend::boot(Box::new(SimPlatform::new())),
+            frontend,
             input: HostInput::new(),
         }
     }

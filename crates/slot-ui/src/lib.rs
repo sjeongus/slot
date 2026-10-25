@@ -16,6 +16,7 @@ mod footer;
 mod hud;
 mod icon;
 mod link_art;
+mod net_screen;
 mod plate;
 mod polaroids;
 mod shot_viewer;
@@ -63,6 +64,12 @@ pub use link_art::{
     link_art, LinkArt, ADAPTER_BASE_X, ADAPTER_BASE_Y, ADAPTER_H, ADAPTER_W, ARCS, ARROW_H,
     ARROW_LEFT_X, ARROW_RIGHT_X, ARROW_W, ARROW_Y, CLICKS_H, CLICKS_W, CLICKS_X, CLICKS_Y, PLUG_H,
     PLUG_TIP_X, PLUG_W, PORT_H, PORT_W, PORT_Y,
+};
+pub use net_screen::{
+    entries as net_entries, key_box as net_key_box, net_face, plain_face, qr_face, sync_text,
+    wifi_text, Action as NetAction, Cap as NetCap, KeyTarget, Keyboard as NetKeyboard,
+    Layer as NetLayer, NetEntry, NetFace, NetFaces, NetIntent, NetKey, NetPage, NetScreen,
+    OverviewRow, OTHER_NETWORK,
 };
 pub use plate::{
     arrows_hint_coloured, arrows_hint_face, arrows_hint_width, cap_width, centred_hints, pad_hint_face,

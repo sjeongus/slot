@@ -64,6 +64,7 @@ pub struct Frontend {
     link_shot: Option<TexId>,
     link_shot_size: (u32, u32),
     link_shot_shown: bool,
+    net_spare: Vec<TexId>,
 }
 
 #[derive(Default)]
@@ -202,7 +203,16 @@ impl Frontend {
             link_shot: None,
             link_shot_size: (0, 0),
             link_shot_shown: false,
+            net_spare: Vec::new(),
         }
+    }
+
+    /// Starts the network thread for the card slot runs from: saved Wi-Fi joins on its own,
+    /// and Syncthing starts if it was left on.
+    pub fn start_network(&mut self, root: &std::path::Path) {
+        let country = crate::baseos::var("BASEOS_WIFI_COUNTRY");
+        let net = slot_net::start(root, country);
+        self.session.app_mut().set_net(net);
     }
 
     fn upload_paper(compositor: &mut Compositor) {
@@ -582,6 +592,7 @@ impl Frontend {
         sync_clock(self.session.app_mut(), compositor, &mut self.clocks);
         sync_binding_faces(self.session.app_mut(), compositor);
         sync_about(self.session.app_mut(), compositor, &mut self.about);
+        sync_net_faces(self.session.app_mut(), compositor, &mut self.net_spare);
         sync_quick_clock(self.session.app_mut(), compositor, &mut self.quick_clock);
         sync_quick_palette(self.session.app_mut(), compositor, &mut self.quick_palette);
         sync_wallpaper(self.session.app_mut(), compositor, &mut self.wallpaper);
@@ -807,6 +818,12 @@ impl Frontend {
 
     pub fn poweroff(&mut self) {
         self.session.app_mut().poweroff();
+    }
+
+    pub fn stop_network(&mut self) {
+        if let Some(net) = self.session.app().net() {
+            net.shutdown();
+        }
     }
 
     pub fn stop(&mut self) {
@@ -1444,6 +1461,39 @@ fn sync_core_picker(
     );
     app.set_core_board_faces(board_id, lid_id);
     *built = Some(faces.stem);
+}
+
+/// Text on the Network screen changes with every scan and keystroke, so its faces are built
+/// when a draw asks for them and their textures recycled once nothing shows them.
+const NET_FACES_KEPT: usize = 192;
+
+fn sync_net_faces(app: &mut App, compositor: &mut Compositor, spare: &mut Vec<TexId>) {
+    let faces = app.net_faces_mut();
+    let wanted = faces.take_wanted();
+    let used = faces.take_used();
+    if !matches!(app.phase(), Phase::Network) && wanted.is_empty() {
+        return;
+    }
+    let faces = app.net_faces_mut();
+    if faces.ready.len() + wanted.len() > NET_FACES_KEPT {
+        faces.ready.retain(|face, (tex, ..)| {
+            let keep = used.contains(face);
+            if !keep {
+                spare.push(*tex);
+            }
+            keep
+        });
+    }
+    for face in wanted {
+        let f = slot_ui::net_face(&face);
+        if f.w == 0 || f.h == 0 {
+            continue;
+        }
+        let (w, h) = (f.w, f.h);
+        let mut slot = spare.pop();
+        let tex = upload(compositor, &mut slot, f);
+        faces.ready.insert(face, (tex, w, h));
+    }
 }
 
 fn upload(compositor: &mut Compositor, slot: &mut Option<TexId>, face: slot_ui::UndoFace) -> TexId {

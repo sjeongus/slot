@@ -35,10 +35,7 @@ fn on_shelf_with_net() -> (TempDir, App) {
 
 fn open_network(a: &mut App) {
     a.apply(Action::QuickMenu);
-    let at = QuickRow::MAIN
-        .iter()
-        .position(|r| *r == QuickRow::Network)
-        .unwrap();
+    let at = QuickRow::Network.position(&a.hidden_rows());
     for _ in 0..at {
         press(a, Btn::Down);
     }
@@ -68,23 +65,12 @@ fn the_network_row_sits_above_about() {
 }
 
 #[test]
-fn opening_without_a_network_thread_still_works_and_b_comes_back() {
+fn a_model_without_wifi_hides_the_row() {
     let d = tmp_root_with_carts(&["Emerald", "Fusion"]);
-    write_slot_state(
-        d.path(),
-        &SlotState {
-            clock_set: true,
-            ..SlotState::default()
-        },
-    )
-    .unwrap();
     let (mut a, _) = app_booting_at(d.path(), CLOCK_IS_SET);
-    assert!(matches!(a.phase(), Phase::Shelf), "{:?}", a.phase());
-    open_network(&mut a);
-    let mut out = Vec::new();
-    a.draw(&mut out);
-    press(&mut a, Btn::B);
-    assert_eq!(a.quick_menu(), Some(QuickRow::Network));
+    assert!(!a.hidden_rows().contains(&QuickRow::Network));
+    a.set_no_wifi();
+    assert!(a.hidden_rows().contains(&QuickRow::Network));
 }
 
 #[test]

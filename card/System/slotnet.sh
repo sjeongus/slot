@@ -20,7 +20,9 @@ WPA_CLI="${AGS_WPA_CLI:-wpa_cli}"
 IP="${AGS_IP:-ip}"
 UDHCPC="${AGS_UDHCPC:-udhcpc}"
 DHCP_SCRIPT="${AGS_DHCP_SCRIPT:-/usr/share/udhcpc/default.script}"
-WAIT_IFACE="${SLOTNET_WAIT_IFACE:-40}"
+# BaseOS loads the radio in the background and, on units that need a long power-off,
+# only creates wlan0 several seconds into boot. NextUI waits 25 s; so does slot.
+WAIT_IFACE="${SLOTNET_WAIT_IFACE:-100}"
 
 nap() {
 	sleep 0.25 2>/dev/null || sleep 1

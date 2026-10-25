@@ -208,10 +208,14 @@ impl Frontend {
     }
 
     /// Starts the network thread for the card slot runs from: saved Wi-Fi joins on its own,
-    /// and Syncthing starts if it was left on.
+    /// and Syncthing starts if it was left on. Models BaseOS builds without Wi-Fi (the RG28XX)
+    /// get no thread, and the Network row stays hidden.
     pub fn start_network(&mut self, root: &std::path::Path) {
-        let country = crate::baseos::var("BASEOS_WIFI_COUNTRY");
-        let net = slot_net::start(root, country);
+        if crate::baseos::var("BASEOS_WIFI").as_deref() == Some("0") {
+            self.session.app_mut().set_no_wifi();
+            return;
+        }
+        let net = slot_net::start(root, None);
         self.session.app_mut().set_net(net);
     }
 

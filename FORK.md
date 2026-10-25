@@ -37,6 +37,8 @@ are merged in as they come.
 Linking needs the radio to itself. When you start a link, slot turns its own Wi-Fi and Syncthing
 off. When the link ends, it turns them back on and rejoins your network. Nothing to do by hand.
 
+On models whose BaseOS build has no Wi-Fi (the RG28XX), the Network row is hidden.
+
 ### Settings file
 
 Everything on the Network page is stored in `Config/net.txt`, which you can also edit on a
@@ -57,7 +59,7 @@ Passwords are stored as plain text on the card, as BaseOS does with its SSH pass
 ### Where Syncthing keeps things
 
 - **Binary**: `System/bin/syncthing`, the pinned linux-arm64 release (see `SYNCTHING_VERSION` in
-  `taskfile.yml`). If the card won't run it in place, slot copies it to `/run/slotnet` and runs it
+  `taskfile.yml`). If the card won't run it in place, slot copies it to `/tmp/slotnet` and runs it
   from there.
 - **Keys and config**: `Config/syncthing/`. The device keeps its ID when you move the card or
   reflash BaseOS.

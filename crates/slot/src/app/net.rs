@@ -22,6 +22,8 @@ pub struct NetUi {
     pub faces: NetFaces,
     told_playing: Option<bool>,
     told_watching: bool,
+    /// BaseOS says this model has no Wi-Fi (the RG28XX), so the Network row is hidden.
+    no_wifi: bool,
 }
 
 /// What slot shows before the network thread has said anything.
@@ -64,6 +66,14 @@ impl App {
     pub fn set_net(&mut self, net: Net) {
         self.net.net = Some(net);
         self.net.seen = 0;
+    }
+
+    pub fn set_no_wifi(&mut self) {
+        self.net.no_wifi = true;
+    }
+
+    pub fn no_wifi(&self) -> bool {
+        self.net.no_wifi
     }
 
     pub fn net(&self) -> Option<&Net> {

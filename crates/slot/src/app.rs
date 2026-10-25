@@ -1454,6 +1454,9 @@ impl App {
         if !self.state.turbo {
             hidden.extend([QuickRow::GameTurboA, QuickRow::GameTurboB]);
         }
+        if self.no_wifi() {
+            hidden.push(QuickRow::Network);
+        }
         hidden
     }
 

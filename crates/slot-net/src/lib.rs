@@ -51,7 +51,7 @@ pub fn start(root: &Path, country: Option<String>) -> Net {
             cfg_keys = (c.syncthing_api_key, c.syncthing_password);
         }
         let sync = syncthing::Syncthing::new(
-            syncthing::Paths::on_card(root, &run),
+            syncthing::Paths::on_card(root, Path::new("/tmp/slotnet")),
             &cfg_keys.0,
             &cfg_keys.1,
         );

@@ -57,12 +57,13 @@ pub struct Paths {
     pub data: PathBuf,
     pub card: PathBuf,
     pub log: PathBuf,
-    /// Where the binary is copied if the card will not let it run in place.
+    /// Where the binary is copied if the card will not let it run in place. BaseOS's /run is
+    /// a 32 MB tmpfs, too small for Syncthing, so this is under /tmp (256 MB).
     pub run: PathBuf,
 }
 
 impl Paths {
-    pub fn on_card(card: &Path, run: &Path) -> Paths {
+    pub fn on_card(card: &Path, scratch: &Path) -> Paths {
         let config = card.join("Config").join("syncthing");
         let data = data_dir().unwrap_or_else(|| config.clone());
         Paths {
@@ -71,14 +72,20 @@ impl Paths {
             data,
             card: card.to_path_buf(),
             log: card.join("Logs").join("syncthing.log"),
-            run: run.to_path_buf(),
+            run: scratch.to_path_buf(),
         }
     }
 }
 
+/// BaseOS mounts its ext4 p6 at /data, or a tmpfs there if that fails. The index only goes
+/// there when it is the real partition, so it survives a restart.
 fn data_dir() -> Option<PathBuf> {
     let base = Path::new("/data");
-    if !base.is_dir() {
+    let mounts = std::fs::read_to_string("/proc/mounts").unwrap_or_default();
+    if !mounts
+        .lines()
+        .any(|l| l.split_whitespace().nth(1) == Some("/data") && l.contains(" ext4 "))
+    {
         return None;
     }
     let dir = base.join("slot").join("syncthing");

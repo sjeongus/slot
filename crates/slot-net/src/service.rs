@@ -190,6 +190,7 @@ impl Net {
             pending: None,
             last_ssid: None,
             scan_asked: None,
+            scan_wanted: None,
             sync_started: None,
             sync_poll_at: None,
             sync_paused: None,
@@ -333,6 +334,7 @@ struct Worker {
     pending: Option<Pending>,
     last_ssid: Option<String>,
     scan_asked: Option<Instant>,
+    scan_wanted: Option<Instant>,
     sync_started: Option<Instant>,
     sync_poll_at: Option<Instant>,
     sync_paused: Option<bool>,
@@ -367,6 +369,7 @@ impl Worker {
         self.watching
             || self.pending.is_some()
             || self.scan_asked.is_some()
+            || self.scan_wanted.is_some()
             || (self.sync_started.is_some() && !self.sync_ready)
     }
 
@@ -421,8 +424,9 @@ impl Worker {
                 self.save();
             }
             Cmd::Scan => {
-                if self.running && self.wifi.scan() {
-                    self.scan_asked = Some(Instant::now());
+                // Asked for now, sent when the supplicant is up and not busy.
+                if self.config.wifi && self.scan_asked.is_none() {
+                    self.scan_wanted.get_or_insert_with(Instant::now);
                     self.update(|s| s.scanning = true);
                 }
             }
@@ -505,6 +509,7 @@ impl Worker {
         }
         self.last_ssid = None;
         self.scan_asked = None;
+        self.scan_wanted = None;
         let held = self.held;
         self.update(|s| {
             s.wifi = if held {
@@ -647,6 +652,15 @@ impl Worker {
     }
 
     fn watch_scan(&mut self) {
+        if let Some(wanted) = self.scan_wanted {
+            if self.wifi.scan() {
+                self.scan_wanted = None;
+                self.scan_asked = Some(Instant::now());
+            } else if wanted.elapsed() > SCAN_LIMIT {
+                self.scan_wanted = None;
+                self.update(|s| s.scanning = false);
+            }
+        }
         let Some(asked) = self.scan_asked else {
             return;
         };
@@ -806,6 +820,16 @@ mod tests {
         net.scan();
         let s = wait(&net, "results", |s| !s.scan.is_empty() && !s.scanning);
         assert_eq!(s.scan[0].ssid, "Home Wi-Fi");
+        net.shutdown();
+    }
+
+    #[test]
+    fn a_scan_asked_before_the_radio_is_up_still_happens() {
+        let d = crate::testdir::TestDir::new("net");
+        let net = start(d.path());
+        net.scan();
+        let s = wait(&net, "results", |s| !s.scan.is_empty() && !s.scanning);
+        assert_eq!(s.scan.len(), 4);
         net.shutdown();
     }
 

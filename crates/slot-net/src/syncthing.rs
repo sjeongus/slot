@@ -180,28 +180,32 @@ impl Syncthing {
         }
     }
 
-    /// The card may be mounted without exec permission; a copy in tmpfs always runs.
     fn runnable(&self) -> Result<PathBuf, String> {
-        let bin = &self.paths.binary;
-        if probe(bin) {
-            return Ok(bin.clone());
-        }
-        let copy = self.paths.run.join("syncthing");
-        let fresh = match (std::fs::metadata(bin), std::fs::metadata(&copy)) {
-            (Ok(a), Ok(b)) => a.len() == b.len(),
-            _ => false,
-        };
-        if !fresh {
-            std::fs::create_dir_all(&self.paths.run).map_err(|e| e.to_string())?;
-            std::fs::copy(bin, &copy).map_err(|e| format!("copy syncthing: {e}"))?;
-        }
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            let _ = std::fs::set_permissions(&copy, std::fs::Permissions::from_mode(0o755));
-        }
-        Ok(copy)
+        runnable(&self.paths.binary, &self.paths.run)
     }
+}
+
+/// The card may be mounted without exec permission; a copy under `run` always runs.
+pub fn runnable(bin: &Path, run: &Path) -> Result<PathBuf, String> {
+    if probe(bin) {
+        return Ok(bin.to_path_buf());
+    }
+    let name = bin.file_name().ok_or("no binary name")?;
+    let copy = run.join(name);
+    let fresh = match (std::fs::metadata(bin), std::fs::metadata(&copy)) {
+        (Ok(a), Ok(b)) => a.len() == b.len(),
+        _ => false,
+    };
+    if !fresh {
+        std::fs::create_dir_all(run).map_err(|e| e.to_string())?;
+        std::fs::copy(bin, &copy).map_err(|e| format!("copy {}: {e}", name.to_string_lossy()))?;
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let _ = std::fs::set_permissions(&copy, std::fs::Permissions::from_mode(0o755));
+    }
+    Ok(copy)
 }
 
 fn probe(bin: &Path) -> bool {

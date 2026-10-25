@@ -9,6 +9,7 @@ pub mod http;
 pub mod json;
 pub mod service;
 pub mod syncthing;
+pub mod tailscale;
 pub mod time;
 pub mod wifi;
 pub mod wpa;
@@ -19,7 +20,10 @@ mod testdir;
 use std::path::{Path, PathBuf};
 
 pub use config::{NetConfig, Network};
-pub use service::{hold_for_link, release_after_link, Net, NetStatus, SyncState, WifiState};
+pub use service::{
+    hold_for_link, online, release_after_link, Backends, Net, NetStatus, SyncState, TailState,
+    WifiState,
+};
 pub use wpa::{valid_passphrase, ScanResult};
 
 /// Runtime files: the supplicant config and control socket, DHCP pid, a runnable Syncthing.
@@ -56,22 +60,59 @@ pub fn start(root: &Path, country: Option<String>) -> Net {
             &cfg_keys.0,
             &cfg_keys.1,
         );
+        let tail = tailscale::Tailscale::new(tailscale::TailPaths::on_card(
+            root,
+            &run,
+            Path::new("/tmp/slotnet"),
+        ));
         Net::start(
             root,
-            Box::new(wifi),
-            Box::new(sync),
-            Box::new(time::BaseosClock::new()),
+            Backends {
+                wifi: Box::new(wifi),
+                sync: Box::new(sync),
+                clock: Box::new(time::BaseosClock::new()),
+                tail: Box::new(tail),
+                probe: Box::new(service::tcp_probe),
+                hostname: hostname(),
+            },
             country,
         )
     }
     #[cfg(not(feature = "device"))]
     {
-        Net::start(
-            root,
-            Box::new(wifi::SimWifi::new()),
-            Box::new(syncthing::SimSync::new()),
-            Box::new(time::SimClock::default()),
-            country,
-        )
+        Net::start(root, sim_backends(), country)
+    }
+}
+
+/// Stand-ins for everything, for the host build and tests.
+pub fn sim_backends() -> Backends {
+    Backends {
+        wifi: Box::new(wifi::SimWifi::new()),
+        sync: Box::new(syncthing::SimSync::new()),
+        clock: Box::new(time::SimClock::default()),
+        tail: Box::new(tailscale::SimTail::new()),
+        probe: Box::new(|| true),
+        hostname: "slot".into(),
+    }
+}
+
+/// "slot-rg35xxh": the model BaseOS names, as Tailscale shows this device.
+pub fn hostname() -> String {
+    let model = std::env::var("BASEOS_MODEL").ok().or_else(|| {
+        std::fs::read_to_string("/etc/baseos-release")
+            .ok()?
+            .lines()
+            .find_map(|l| l.trim().strip_prefix("BASEOS_MODEL=").map(str::to_string))
+    });
+    let model = model.unwrap_or_default().replace('"', "");
+    let model: String = model
+        .trim()
+        .to_ascii_lowercase()
+        .chars()
+        .filter(|c| c.is_ascii_alphanumeric())
+        .collect();
+    match model.is_empty() {
+        true => "slot".into(),
+        false => format!("slot-{model}"),
     }
 }

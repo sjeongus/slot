@@ -1886,6 +1886,7 @@ dependencies = [
  "libloading",
  "lz4_flex",
  "png 0.17.16",
+ "slot-ach",
  "slot-gfx",
  "slot-input",
  "slot-net",
@@ -1895,6 +1896,15 @@ dependencies = [
  "slot-ui",
  "tempfile",
  "winit",
+]
+
+[[package]]
+name = "slot-ach"
+version = "0.1.0"
+dependencies = [
+ "cc",
+ "slot-net",
+ "slot-retro",
 ]
 
 [[package]]

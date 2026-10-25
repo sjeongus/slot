@@ -36,7 +36,14 @@ pub fn draw_footer(
 ) {
     let y = FOOTER_Y + (HINT_H as f32 - GAUGE_H) / 2.0;
     draw_gauge(FOOTER_MARGIN, y, battery, percent, bolt, ink, out);
-    printed(canvas.w - FOOTER_MARGIN - clock.w as f32, clock, out);
+    let x = canvas.w - FOOTER_MARGIN - clock.w as f32;
+    printed(x, clock, out);
+    crate::wifi_mark::draw_wifi_mark(
+        x - crate::wifi_mark::MARK_GAP,
+        FOOTER_Y + HINT_H as f32 / 2.0,
+        ink,
+        out,
+    );
 }
 
 pub fn draw_corners(
@@ -51,6 +58,7 @@ pub fn draw_corners(
     draw_gauge(CORNER_MARGIN, y, battery, percent, bolt, HUD_INK, out);
     let x = canvas.w - CORNER_MARGIN - clock.w as f32;
     draw_printed(x, (PLATE_H - HINT_H as f32) / 2.0, clock, out);
+    crate::wifi_mark::draw_wifi_mark(x - crate::wifi_mark::MARK_GAP, PLATE_H / 2.0, HUD_INK, out);
 }
 
 pub(crate) fn draw_printed(x: f32, y: f32, p: Printed, out: &mut Vec<Draw>) {

@@ -17,6 +17,8 @@ pub const GET_LOG_INTERFACE: c_uint = 27;
 pub const GET_SAVE_DIRECTORY: c_uint = 31;
 pub const SET_AUDIO_BUFFER_STATUS_CALLBACK: c_uint = 62;
 pub const SET_NETPACKET_INTERFACE: c_uint = 78;
+/// 36 | RETRO_ENVIRONMENT_EXPERIMENTAL: where the core's RAM lives, for RetroAchievements.
+pub const SET_MEMORY_MAPS: c_uint = 36 | 0x10000;
 
 pub const RUMBLE_STRONG: c_uint = 0;
 pub const RUMBLE_WEAK: c_uint = 1;
@@ -26,6 +28,7 @@ pub const PIXEL_FORMAT_RGB565: c_uint = 2;
 pub const DEVICE_JOYPAD: c_uint = 1;
 pub const MEMORY_SAVE_RAM: c_uint = 0;
 pub const MEMORY_RTC: c_uint = 1;
+pub const MEMORY_SYSTEM_RAM: c_uint = 2;
 pub const JOYPAD_MASK: c_uint = 256;
 
 pub const NETPACKET_UNRELIABLE: i32 = 0;
@@ -33,6 +36,24 @@ pub const NETPACKET_RELIABLE: i32 = 1 << 0;
 pub const NETPACKET_UNSEQUENCED: i32 = 1 << 1;
 pub const NETPACKET_FLUSH_HINT: i32 = 1 << 2;
 pub const NETPACKET_BROADCAST: u16 = 0xFFFF;
+
+#[repr(C)]
+pub struct MemoryDescriptorC {
+    pub flags: u64,
+    pub ptr: *mut c_void,
+    pub offset: usize,
+    pub start: usize,
+    pub select: usize,
+    pub disconnect: usize,
+    pub len: usize,
+    pub addrspace: *const c_char,
+}
+
+#[repr(C)]
+pub struct MemoryMapC {
+    pub descriptors: *const MemoryDescriptorC,
+    pub num_descriptors: c_uint,
+}
 
 #[repr(C)]
 pub struct GameInfo {

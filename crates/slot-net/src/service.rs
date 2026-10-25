@@ -8,6 +8,7 @@ use std::time::{Duration, Instant};
 
 use crate::config::{NetConfig, Network};
 use crate::syncthing::{SyncEngine, GUI_PORT};
+use crate::tailscale::{TailEngine, TailPoll};
 use crate::time::Clock;
 use crate::wifi::WifiDriver;
 use crate::wpa::{self, ScanResult};
@@ -29,6 +30,19 @@ const ZONE_RETRY: Duration = Duration::from_secs(10 * 60);
 const SYNCED_POLL: Duration = Duration::from_secs(30);
 /// Link play waits at most this long for slot's Wi-Fi to step aside.
 const HOLD_LIMIT: Duration = Duration::from_secs(10);
+/// How often the internet is checked while connected, and sooner after a miss.
+const PROBE_EVERY: Duration = Duration::from_secs(60);
+const PROBE_RETRY: Duration = Duration::from_secs(15);
+const TAIL_POLL_FAST: Duration = Duration::from_secs(2);
+const TAIL_POLL_SLOW: Duration = Duration::from_secs(30);
+
+static ONLINE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Wi-Fi is connected and the internet answered the last check. Read by anything that
+/// would rather not wait on a request that cannot work, such as RetroAchievements.
+pub fn online() -> bool {
+    ONLINE.load(std::sync::atomic::Ordering::Relaxed)
+}
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum WifiState {
@@ -68,6 +82,27 @@ pub enum SyncState {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
+pub enum TailState {
+    Off,
+    /// The Tailscale binaries are not on the card.
+    Missing,
+    WaitingForWifi,
+    Starting,
+    /// Not logged in. The link, once Tailscale has made one, logs this device in.
+    NeedsLogin {
+        url: Option<String>,
+    },
+    /// Logged in; an admin has to approve the device on the tailnet.
+    NeedsApproval,
+    Running {
+        ip: Option<String>,
+        name: Option<String>,
+        tailnet: Option<String>,
+    },
+    Failed(String),
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct NetStatus {
     pub wifi_on: bool,
     pub wifi: WifiState,
@@ -86,6 +121,10 @@ pub struct NetStatus {
     /// The zone in use, found or remembered; None until one is known.
     pub timezone: Option<String>,
     pub retroarch_saves: bool,
+    /// Connected, and the internet answered the last check.
+    pub online: bool,
+    pub tailscale_on: bool,
+    pub tail: TailState,
     /// Bumped on every change so screens know to redraw their text.
     pub generation: u64,
 }
@@ -127,6 +166,35 @@ enum Cmd {
     Hold(Sender<()>),
     Release,
     Shutdown(Sender<()>),
+    SetTailscale(bool),
+    TailLogout,
+}
+
+/// What the network thread drives. On a device build these are the real radio, Syncthing,
+/// clock and Tailscale; on the host, stand-ins.
+pub struct Backends {
+    pub wifi: Box<dyn WifiDriver>,
+    pub sync: Box<dyn SyncEngine>,
+    pub clock: Box<dyn Clock>,
+    pub tail: Box<dyn TailEngine>,
+    /// Can the internet be reached? Called only while Wi-Fi is connected.
+    pub probe: Box<dyn Fn() -> bool + Send>,
+    /// The name Tailscale gives this device.
+    pub hostname: String,
+}
+
+/// Tries to open a TCP connection to well-known public DNS servers.
+pub fn tcp_probe() -> bool {
+    use std::net::{SocketAddr, TcpStream};
+    [
+        ([1, 1, 1, 1], 443),
+        ([8, 8, 8, 8], 443),
+        ([9, 9, 9, 9], 443),
+    ]
+    .into_iter()
+    .any(|(ip, port)| {
+        TcpStream::connect_timeout(&SocketAddr::from((ip, port)), Duration::from_secs(3)).is_ok()
+    })
 }
 
 /// The handle slot keeps. Cheap to call from the UI thread: every method only sends.
@@ -158,13 +226,15 @@ pub fn release_after_link() {
 }
 
 impl Net {
-    pub fn start(
-        root: &Path,
-        wifi: Box<dyn WifiDriver>,
-        sync: Box<dyn SyncEngine>,
-        clock: Box<dyn Clock>,
-        country: Option<String>,
-    ) -> Net {
+    pub fn start(root: &Path, backends: Backends, country: Option<String>) -> Net {
+        let Backends {
+            wifi,
+            sync,
+            clock,
+            tail,
+            probe,
+            hostname,
+        } = backends;
         let mut config = NetConfig::load(root);
         let mut changed = false;
         if config.syncthing_api_key.is_empty() {
@@ -194,6 +264,9 @@ impl Net {
             auto_timezone: config.auto_timezone,
             timezone: Some(config.timezone.clone()).filter(|z| !z.is_empty()),
             retroarch_saves: config.retroarch_saves,
+            online: false,
+            tailscale_on: config.tailscale,
+            tail: TailState::Off,
             generation: 1,
         }));
         let (tx, rx) = channel();
@@ -220,6 +293,14 @@ impl Net {
             sync_failed: None,
             zone_checked: None,
             synced_polled: None,
+            tail,
+            tail_started: false,
+            tail_poll_at: None,
+            tail_failed: None,
+            hostname,
+            probe,
+            probe_at: None,
+            probe_ok: false,
         };
         let _ = std::thread::Builder::new()
             .name("slot-net".into())
@@ -311,6 +392,15 @@ impl Net {
         self.send(Cmd::Release)
     }
 
+    pub fn set_tailscale(&self, on: bool) {
+        self.send(Cmd::SetTailscale(on))
+    }
+
+    /// Logs this device out of the tailnet; a new login link follows.
+    pub fn tailscale_logout(&self) {
+        self.send(Cmd::TailLogout)
+    }
+
     /// Stops Syncthing and Wi-Fi before slot powers off or restarts. Waits a few seconds.
     pub fn shutdown(&self) {
         let (tx, rx) = channel();
@@ -381,6 +471,14 @@ struct Worker {
     /// When the zone was last looked up, and whether that worked.
     zone_checked: Option<(Instant, bool)>,
     synced_polled: Option<Instant>,
+    tail: Box<dyn TailEngine>,
+    tail_started: bool,
+    tail_poll_at: Option<Instant>,
+    tail_failed: Option<String>,
+    hostname: String,
+    probe: Box<dyn Fn() -> bool + Send>,
+    probe_at: Option<Instant>,
+    probe_ok: bool,
 }
 
 impl Worker {
@@ -395,6 +493,7 @@ impl Worker {
             let period = if self.busy() { FAST } else { SLOW };
             match rx.recv_timeout(period) {
                 Ok(Cmd::Shutdown(done)) => {
+                    self.stop_tail();
                     self.stop_sync();
                     self.stop_wifi();
                     let _ = done.send(());
@@ -403,6 +502,7 @@ impl Worker {
                 Ok(cmd) => self.handle(cmd),
                 Err(RecvTimeoutError::Timeout) => {}
                 Err(RecvTimeoutError::Disconnected) => {
+                    self.stop_tail();
                     self.stop_sync();
                     self.stop_wifi();
                     return;
@@ -417,6 +517,7 @@ impl Worker {
             || self.scan_asked.is_some()
             || self.scan_wanted.is_some()
             || (self.sync_started.is_some() && !self.sync_ready)
+            || (self.tail_started && !matches!(lock(&self.status).tail, TailState::Running { .. }))
     }
 
     fn update(&self, f: impl FnOnce(&mut NetStatus)) {
@@ -448,6 +549,7 @@ impl Worker {
             s.auto_timezone = c.auto_timezone;
             s.timezone = Some(c.timezone.clone()).filter(|z| !z.is_empty());
             s.retroarch_saves = c.retroarch_saves;
+            s.tailscale_on = c.tailscale;
         });
     }
 
@@ -542,11 +644,23 @@ impl Worker {
             }
             Cmd::Hold(done) => {
                 self.held = true;
+                self.stop_tail();
                 self.stop_sync();
                 self.stop_wifi();
                 let _ = done.send(());
             }
             Cmd::Release => self.held = false,
+            Cmd::SetTailscale(on) => {
+                self.config.tailscale = on;
+                self.tail_failed = None;
+                self.save();
+            }
+            Cmd::TailLogout => {
+                if self.tail_started {
+                    self.tail.logout();
+                    self.tail_poll_at = None;
+                }
+            }
             Cmd::Shutdown(_) => unreachable!("handled in run"),
         }
     }
@@ -584,6 +698,13 @@ impl Worker {
             };
             s.scanning = false;
         });
+    }
+
+    fn stop_tail(&mut self) {
+        if std::mem::take(&mut self.tail_started) {
+            self.tail.stop();
+        }
+        self.tail_poll_at = None;
     }
 
     fn stop_sync(&mut self) {
@@ -648,8 +769,92 @@ impl Worker {
             self.watch_wifi();
             self.watch_scan();
         }
+        self.reconcile_online();
         self.reconcile_time();
         self.reconcile_sync();
+        self.reconcile_tail();
+    }
+
+    /// Checks the internet now and then while Wi-Fi is connected.
+    fn reconcile_online(&mut self) {
+        let connected = self.running && lock(&self.status).ip().is_some();
+        if !connected {
+            self.probe_at = None;
+            self.probe_ok = false;
+        } else {
+            let every = if self.probe_ok {
+                PROBE_EVERY
+            } else {
+                PROBE_RETRY
+            };
+            if self.probe_at.is_none_or(|t| t.elapsed() > every) {
+                self.probe_at = Some(Instant::now());
+                self.probe_ok = (self.probe)();
+            }
+        }
+        let online = connected && self.probe_ok;
+        ONLINE.store(online, std::sync::atomic::Ordering::Relaxed);
+        self.update(|s| s.online = online);
+    }
+
+    fn reconcile_tail(&mut self) {
+        if !self.config.tailscale {
+            self.stop_tail();
+            self.update(|s| s.tail = TailState::Off);
+            return;
+        }
+        if !self.tail.available() {
+            self.update(|s| s.tail = TailState::Missing);
+            return;
+        }
+        if let Some(e) = &self.tail_failed {
+            let e = e.clone();
+            self.update(|s| s.tail = TailState::Failed(e));
+            return;
+        }
+        let connected = self.running && lock(&self.status).ip().is_some();
+        if !self.tail_started {
+            if !connected {
+                self.update(|s| s.tail = TailState::WaitingForWifi);
+                return;
+            }
+            match self.tail.start() {
+                Ok(()) => {
+                    self.tail_started = true;
+                    self.tail_poll_at = None;
+                    self.update(|s| s.tail = TailState::Starting);
+                }
+                Err(e) => {
+                    eprintln!("slot-net: tailscale: {e}");
+                    self.tail_failed = Some(e);
+                }
+            }
+            return;
+        }
+        if !self.tail.alive() {
+            self.tail_started = false;
+            self.tail_failed = Some("Tailscale stopped".into());
+            return;
+        }
+        let every = if self.watching {
+            TAIL_POLL_FAST
+        } else {
+            TAIL_POLL_SLOW
+        };
+        if self.tail_poll_at.is_some_and(|t| t.elapsed() < every) {
+            return;
+        }
+        self.tail_poll_at = Some(Instant::now());
+        let Some(poll) = self.tail.poll() else {
+            return;
+        };
+        let state = tail_state(&poll);
+        // Turned on means connected: ask for that, which also makes the login link.
+        if matches!(poll.backend.as_str(), "NeedsLogin" | "Stopped") {
+            let hostname = self.hostname.clone();
+            self.tail.up(&hostname);
+        }
+        self.update(|s| s.tail = state);
     }
 
     fn reconcile_time(&mut self) {
@@ -869,6 +1074,21 @@ impl Worker {
     }
 }
 
+fn tail_state(poll: &TailPoll) -> TailState {
+    match poll.backend.as_str() {
+        "Running" => TailState::Running {
+            ip: poll.ip.clone(),
+            name: poll.name.clone(),
+            tailnet: poll.tailnet.clone(),
+        },
+        "NeedsLogin" => TailState::NeedsLogin {
+            url: poll.auth_url.clone(),
+        },
+        "NeedsMachineAuth" => TailState::NeedsApproval,
+        _ => TailState::Starting,
+    }
+}
+
 fn run_dir_str() -> String {
     crate::run_dir().to_string_lossy().into_owned()
 }
@@ -876,8 +1096,6 @@ fn run_dir_str() -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::syncthing::SimSync;
-    use crate::wifi::SimWifi;
 
     fn wait(net: &Net, what: &str, ok: impl Fn(&NetStatus) -> bool) -> NetStatus {
         let until = Instant::now() + Duration::from_secs(20);
@@ -892,13 +1110,7 @@ mod tests {
     }
 
     fn start(root: &Path) -> Net {
-        let net = Net::start(
-            root,
-            Box::new(SimWifi::new()),
-            Box::new(SimSync::new()),
-            Box::new(crate::time::SimClock::default()),
-            None,
-        );
+        let net = Net::start(root, crate::sim_backends(), None);
         net.watching(true);
         net
     }
@@ -1056,6 +1268,55 @@ mod tests {
         assert!(!s.time_synced);
         let c = NetConfig::load(d.path());
         assert!(!c.network_time && !c.auto_timezone && !c.retroarch_saves);
+        net.shutdown();
+    }
+
+    #[test]
+    fn online_follows_the_connection() {
+        let d = crate::testdir::TestDir::new("net");
+        let net = start(d.path());
+        assert!(!net.status().online);
+        net.join("Coffee Shop", "", false);
+        wait(&net, "online", |s| s.online);
+        net.set_wifi(false);
+        wait(&net, "offline", |s| !s.online);
+        net.shutdown();
+    }
+
+    #[test]
+    fn tailscale_waits_for_wifi_offers_a_login_link_then_comes_up() {
+        let d = crate::testdir::TestDir::new("net");
+        let net = start(d.path());
+        net.set_tailscale(true);
+        wait(&net, "waiting", |s| s.tail == TailState::WaitingForWifi);
+        assert!(NetConfig::load(d.path()).tailscale);
+        net.join("Coffee Shop", "", false);
+        let s = wait(&net, "link", |s| {
+            matches!(&s.tail, TailState::NeedsLogin { url: Some(_) })
+        });
+        assert_eq!(
+            s.tail,
+            TailState::NeedsLogin {
+                url: Some(crate::tailscale::SIM_LOGIN_URL.into())
+            }
+        );
+        let s = wait(&net, "running", |s| {
+            matches!(s.tail, TailState::Running { .. })
+        });
+        assert_eq!(
+            s.tail,
+            TailState::Running {
+                ip: Some("100.101.102.103".into()),
+                name: Some("slot-rg35xxh".into()),
+                tailnet: Some("example.com".into()),
+            }
+        );
+        net.tailscale_logout();
+        wait(&net, "logged out", |s| {
+            matches!(s.tail, TailState::NeedsLogin { .. })
+        });
+        net.set_tailscale(false);
+        wait(&net, "off", |s| s.tail == TailState::Off && !s.tailscale_on);
         net.shutdown();
     }
 

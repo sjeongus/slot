@@ -1,13 +1,17 @@
-//! The Network screen inside the App, and keeping the network thread in step with play.
+//! The Network screen inside the App, keeping the network thread in step with play, and the
+//! achievement notices shown over the game.
 //!
 //! Kept apart from app.rs so upstream changes to the App merge with as little friction as
 //! possible: app.rs only routes the Network phase here.
 
+use std::collections::VecDeque;
+use std::path::PathBuf;
+
 use slot_input::{Action, Btn};
-use slot_net::{Net, NetStatus, SyncState, WifiState};
+use slot_net::{Net, NetStatus, SyncState, TailState, WifiState};
 use slot_ui::{
-    draw_album_chrome, draw_menu_ground, AlbumChrome, Draw, NetFace, NetFaces, NetIntent, NetKey,
-    NetPage, NetScreen, QuickRow,
+    draw_album_chrome, draw_menu_ground, AchView, AlbumChrome, Draw, NetFace, NetFaces, NetIntent,
+    NetKey, NetPage, NetScreen, QuickRow,
 };
 
 use super::{App, Phase};
@@ -26,6 +30,105 @@ pub struct NetUi {
     zone_at: Option<u64>,
     /// BaseOS says this model has no Wi-Fi (the RG28XX), so the Network row is hidden.
     no_wifi: bool,
+    ach_seen: u64,
+    /// Achievement notices waiting to be shown, and when the first one went up.
+    notices: VecDeque<Notice>,
+    notice_at: Option<u64>,
+}
+
+/// A notice over the game: what happened, its name, a detail, and the badge if there is one.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Notice {
+    pub heading: String,
+    pub name: String,
+    pub detail: Option<String>,
+    pub badge: Option<PathBuf>,
+}
+
+/// How long each notice stays up, and how long it takes to slide in and out.
+const NOTICE_MS: u64 = 4500;
+const NOTICE_SLIDE_MS: u64 = 220;
+
+fn notice_for(event: slot_ach::Event, on_network: bool) -> Option<Notice> {
+    use slot_ach::Event;
+    let n = |heading: &str, name: String, detail: Option<String>| Notice {
+        heading: heading.to_string(),
+        name,
+        detail,
+        badge: None,
+    };
+    Some(match event {
+        Event::LoggedIn { .. } | Event::LoginFailed(_) if on_network => return None,
+        Event::LoggedIn { user } => n("RetroAchievements", format!("Logged in as {user}"), None),
+        Event::LoginFailed(e) => n("RetroAchievements", "Could not log in".into(), Some(e)),
+        Event::GameLoaded {
+            title,
+            unlocked,
+            total,
+            badge,
+            offline,
+        } => Notice {
+            badge,
+            ..n(
+                "Achievements",
+                title,
+                Some(format!(
+                    "{unlocked} of {total} unlocked{}",
+                    if offline { " · offline" } else { "" }
+                )),
+            )
+        },
+        Event::NoAchievements => n("Achievements", "None for this game".into(), None),
+        Event::GameFailed(e) => n("Achievements", e, None),
+        Event::Unlocked {
+            title,
+            description,
+            points,
+            badge,
+            later,
+        } => Notice {
+            badge,
+            ..n(
+                &format!(
+                    "Unlocked · {points} point{}",
+                    if points == 1 { "" } else { "s" }
+                ),
+                title,
+                Some(match later {
+                    true => "Saved, and sent once back online".into(),
+                    false => description,
+                }),
+            )
+        },
+        Event::Mastered => n("Achievements", "Every achievement unlocked".into(), None),
+        Event::Sent(1) => n("Achievements", "1 saved unlock sent".into(), None),
+        Event::Sent(k) => n("Achievements", format!("{k} saved unlocks sent"), None),
+        Event::ServerError(e) => {
+            eprintln!("slot: achievements: {e}");
+            return None;
+        }
+    })
+}
+
+fn ach_view(s: &slot_ach::AchStatus) -> AchView {
+    use slot_ach::Account;
+    AchView {
+        enabled: s.enabled,
+        user: s.user.clone(),
+        logged_in: matches!(s.account, Account::LoggedIn { .. }),
+        state: match &s.account {
+            Account::LoggedOut => "Not logged in".into(),
+            Account::LoggingIn => "Logging in…".into(),
+            Account::LoggedIn { offline: false } => "Logged in".into(),
+            Account::LoggedIn { offline: true } => "Logged in, offline".into(),
+            Account::Failed(e) => e.clone(),
+        },
+        pending: s.pending,
+        game: s
+            .game
+            .as_ref()
+            .map(|g| format!("{} of {} unlocked", g.unlocked, g.total)),
+    }
 }
 
 /// What slot shows before the network thread has said anything.
@@ -46,6 +149,9 @@ fn quiet_status() -> NetStatus {
         auto_timezone: false,
         timezone: None,
         retroarch_saves: slot_store::layout() == slot_store::Layout::RetroArch,
+        online: false,
+        tailscale_on: false,
+        tail: slot_net::TailState::Off,
         generation: 0,
     }
 }
@@ -115,6 +221,14 @@ impl App {
         };
         let status = self.net_status();
         let intent = self.net.screen.input(key, &status);
+        // Achievements are slot's own, with or without the network thread.
+        match &intent {
+            NetIntent::SetAchievements(on) => return slot_ach::set_enabled(*on),
+            NetIntent::AchLogin { user, password } => return slot_ach::login(user, password),
+            NetIntent::AchLogout => return slot_ach::logout(),
+            NetIntent::AchSend => return slot_ach::send_now(),
+            _ => {}
+        }
         let Some(net) = self.net.net.clone() else {
             if intent == NetIntent::Close {
                 self.close_network();
@@ -141,6 +255,12 @@ impl App {
                 net.set_auto_timezone(on);
                 self.net.zone_at = None;
             }
+            NetIntent::SetTailscale(on) => net.set_tailscale(on),
+            NetIntent::TailLogout => net.tailscale_logout(),
+            NetIntent::SetAchievements(_)
+            | NetIntent::AchLogin { .. }
+            | NetIntent::AchLogout
+            | NetIntent::AchSend => {}
         }
     }
 
@@ -156,6 +276,7 @@ impl App {
     pub(super) fn sync_net(&mut self) {
         // The RetroArch layout names states by file time; keep it in step with slot's clock.
         slot_store::set_wall_offset_min(self.state.utc_offset_min);
+        self.sync_achievements();
         let Some(net) = &self.net.net else {
             return;
         };
@@ -163,11 +284,21 @@ impl App {
         if generation != self.net.seen {
             let status = net.status();
             set_save_layout(status.retroarch_saves);
+            slot_ui::set_online(status.online);
             self.net.status = Some(status);
             self.net.seen = generation;
             self.net.zone_at = None;
         }
         self.follow_zone();
+        // The login page has done its job once the device is on the tailnet.
+        if self.net.screen.page == NetPage::TailLogin
+            && matches!(
+                self.net.status.as_ref().map(|s| &s.tail),
+                Some(TailState::Running { .. })
+            )
+        {
+            self.net.screen.page = NetPage::Tailscale;
+        }
         let Some(net) = &self.net.net else {
             return;
         };
@@ -239,6 +370,60 @@ impl App {
                 eprintln!("slot: net.txt: {e}");
             }
         }
+    }
+
+    /// Keeps the Achievements page's summary current and turns achievement events into
+    /// notices.
+    fn sync_achievements(&mut self) {
+        let status = slot_ach::status();
+        if status.generation != self.net.ach_seen {
+            self.net.ach_seen = status.generation;
+            self.net.screen.ach = ach_view(&status);
+        }
+        let on_network = matches!(self.phase, Phase::Network);
+        for event in slot_ach::take_events() {
+            if let Some(n) = notice_for(event, on_network) {
+                self.net.notices.push_back(n);
+            }
+        }
+        let now = self.now();
+        match self.net.notice_at {
+            Some(at) if now.saturating_sub(at) >= NOTICE_MS => {
+                self.net.notices.pop_front();
+                self.net.notice_at = (!self.net.notices.is_empty()).then_some(now);
+            }
+            None if !self.net.notices.is_empty() => self.net.notice_at = Some(now),
+            _ => {}
+        }
+    }
+
+    pub fn notice(&self) -> Option<&Notice> {
+        self.net.notices.front()
+    }
+
+    /// The notice at the top of the screen, sliding in and out.
+    pub(super) fn draw_notice(&self, out: &mut Vec<Draw>) {
+        let (Some(n), Some(at)) = (self.net.notices.front(), self.net.notice_at) else {
+            return;
+        };
+        let t = self.now().saturating_sub(at);
+        let shown = match t {
+            t if t < NOTICE_SLIDE_MS => t as f32 / NOTICE_SLIDE_MS as f32,
+            t if t > NOTICE_MS - NOTICE_SLIDE_MS => {
+                NOTICE_MS.saturating_sub(t) as f32 / NOTICE_SLIDE_MS as f32
+            }
+            _ => 1.0,
+        };
+        slot_ui::draw_notice(
+            self.canvas(),
+            &n.heading,
+            &n.name,
+            n.detail.as_deref(),
+            n.badge.as_deref(),
+            shown,
+            &self.net.faces,
+            out,
+        );
     }
 
     /// Stops Syncthing and Wi-Fi before slot powers off, restarts or checks the card.

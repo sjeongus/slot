@@ -17,6 +17,7 @@ mod hud;
 mod icon;
 mod link_art;
 mod net_screen;
+mod notice;
 mod plate;
 mod polaroids;
 mod shot_viewer;
@@ -31,6 +32,7 @@ mod slot_chrome;
 mod sticker;
 pub mod text;
 mod toast;
+mod wifi_mark;
 
 pub use backdrop::{
     bezel_face, blur_background, default_background, default_game_bezel_face, draw_backdrop,
@@ -66,11 +68,12 @@ pub use link_art::{
     PLUG_TIP_X, PLUG_W, PORT_H, PORT_W, PORT_Y,
 };
 pub use net_screen::{
-    entries as net_entries, key_box as net_key_box, net_face, plain_face, qr_face, sync_text,
-    time_text, wifi_text, Action as NetAction, Cap as NetCap, KeyTarget, Keyboard as NetKeyboard,
-    Layer as NetLayer, NetEntry, NetFace, NetFaces, NetIntent, NetKey, NetPage, NetScreen,
-    OverviewRow, SyncRow, OTHER_NETWORK,
+    ach_text, entries as net_entries, key_box as net_key_box, net_face, plain_face, qr_face,
+    sync_text, tail_text, time_text, wifi_text, AchRow, AchView, Action as NetAction,
+    Cap as NetCap, KeyTarget, Keyboard as NetKeyboard, Layer as NetLayer, NetEntry, NetFace,
+    NetFaces, NetIntent, NetKey, NetPage, NetScreen, OverviewRow, SyncRow, TailRow, OTHER_NETWORK,
 };
+pub use notice::draw_notice;
 pub use plate::{
     arrows_hint_coloured, arrows_hint_face, arrows_hint_width, cap_width, centred_hints, pad_hint_face,
     pad_hint_width, tick_cap_face,
@@ -112,3 +115,4 @@ pub use sticker::{
     CREDITS, DC, HOME, ORIGIN, STICKER_H, STICKER_W,
 };
 pub use toast::{toast_box, toast_face, toast_rect, Toast};
+pub use wifi_mark::{draw_wifi_mark, online as wifi_mark_shown, set_online};

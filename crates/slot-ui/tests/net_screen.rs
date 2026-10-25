@@ -43,6 +43,13 @@ fn status() -> NetStatus {
         auto_timezone: true,
         timezone: Some("America/Los_Angeles".into()),
         retroarch_saves: true,
+        online: true,
+        tailscale_on: true,
+        tail: slot_net::TailState::Running {
+            ip: Some("100.101.102.103".into()),
+            name: Some("slot-rg35xxh".into()),
+            tailnet: Some("me@example.com".into()),
+        },
         generation: 1,
     }
 }
@@ -73,7 +80,7 @@ fn overview_toggles_ask_for_the_opposite_state() {
     assert_eq!(n.overview_row(), OverviewRow::Wifi);
     assert_eq!(n.input(NetKey::A, &s), NetIntent::SetWifi(false));
     assert_eq!(n.input(NetKey::Right, &s), NetIntent::SetWifi(false));
-    for _ in 0..4 {
+    for _ in 0..6 {
         n.input(NetKey::Down, &s);
     }
     assert_eq!(n.overview_row(), OverviewRow::NetworkTime);
@@ -422,6 +429,142 @@ impl Cpu {
     }
 }
 
+fn ach() -> slot_ui::AchView {
+    slot_ui::AchView {
+        enabled: true,
+        user: Some("Player1".into()),
+        logged_in: true,
+        state: "Logged in".into(),
+        pending: 2,
+        game: Some("12 of 40 unlocked".into()),
+    }
+}
+
+#[test]
+fn tailscale_logs_in_from_its_page_and_out_again() {
+    let mut s = status();
+    let mut n = NetScreen::new();
+    for _ in 0..4 {
+        n.input(NetKey::Down, &s);
+    }
+    assert_eq!(n.overview_row(), OverviewRow::Tailscale);
+    n.input(NetKey::A, &s);
+    assert_eq!(n.page, NetPage::Tailscale);
+    assert_eq!(n.input(NetKey::Right, &s), NetIntent::SetTailscale(false));
+    assert_eq!(
+        slot_ui::TailRow::shown(&s),
+        [
+            slot_ui::TailRow::Tailscale,
+            slot_ui::TailRow::Status,
+            slot_ui::TailRow::Address,
+            slot_ui::TailRow::Name,
+            slot_ui::TailRow::LogOut
+        ]
+    );
+    n.tail_row = 4;
+    assert_eq!(n.input(NetKey::A, &s), NetIntent::TailLogout);
+    s.tail = slot_net::TailState::NeedsLogin { url: None };
+    n.tail_row = 2;
+    assert_eq!(n.tail_row(&s), slot_ui::TailRow::LogIn);
+    n.input(NetKey::A, &s);
+    assert_eq!(n.page, NetPage::TailLogin);
+    n.input(NetKey::B, &s);
+    assert_eq!(n.page, NetPage::Tailscale);
+}
+
+#[test]
+fn an_achievements_account_is_typed_in_two_steps() {
+    let s = status();
+    let mut n = NetScreen::new();
+    n.page = NetPage::Achievements;
+    n.ach = slot_ui::AchView {
+        enabled: true,
+        state: "Not logged in".into(),
+        ..Default::default()
+    };
+    assert_eq!(n.input(NetKey::A, &s), NetIntent::SetAchievements(false));
+    n.input(NetKey::Down, &s);
+    n.input(NetKey::A, &s);
+    assert_eq!(n.page, NetPage::Keyboard(slot_ui::KeyTarget::AchUser));
+    assert_eq!(n.title(), "User Name");
+    type_text(&mut n, &s, "Player1");
+    n.input(NetKey::Start, &s);
+    assert_eq!(
+        n.page,
+        NetPage::Keyboard(slot_ui::KeyTarget::AchPassword {
+            user: "Player1".into()
+        })
+    );
+    type_text(&mut n, &s, "hunter2");
+    assert_eq!(
+        n.input(NetKey::Start, &s),
+        NetIntent::AchLogin {
+            user: "Player1".into(),
+            password: "hunter2".into()
+        }
+    );
+    assert_eq!(n.page, NetPage::Achievements);
+    n.ach = ach();
+    n.ach_row = 4;
+    assert_eq!(n.ach_row(), slot_ui::AchRow::Saved);
+    assert_eq!(n.input(NetKey::A, &s), NetIntent::AchSend);
+    n.ach_row = 5;
+    assert_eq!(n.input(NetKey::A, &s), NetIntent::AchLogout);
+}
+
+#[test]
+fn a_notice_slides_in_with_its_badge() {
+    let dir = std::env::temp_dir().join(format!("slot-badge-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let badge = dir.join("00234.png");
+    {
+        let f = std::fs::File::create(&badge).unwrap();
+        let mut enc = png::Encoder::new(std::io::BufWriter::new(f), 64, 64);
+        enc.set_color(png::ColorType::Rgb);
+        enc.set_depth(png::BitDepth::Eight);
+        let mut data = vec![0u8; 64 * 64 * 3];
+        for (i, p) in data.chunks_mut(3).enumerate() {
+            p.copy_from_slice(&[(i % 64 * 4) as u8, 0x80, 0xff - (i / 64 * 4) as u8]);
+        }
+        enc.write_header().unwrap().write_image_data(&data).unwrap();
+    }
+    let canvas = Canvas { w: 640.0, h: 480.0 };
+    let mut faces = NetFaces::default();
+    let mut cpu = Cpu { faces: Vec::new() };
+    let mut draws = Vec::new();
+    for _ in 0..2 {
+        draws.clear();
+        slot_ui::draw_notice(
+            canvas,
+            "Unlocked · 10 points",
+            "Champion of Hoenn",
+            Some("Defeat the Elite Four"),
+            Some(&badge),
+            1.0,
+            &faces,
+            &mut draws,
+        );
+        cpu.fill(&mut faces);
+    }
+    assert!(faces.take_wanted().is_empty(), "faces still missing");
+    let px = cpu.render(640, 480, &draws);
+    if let Some(dir) = std::env::var_os("SLOT_NET_PREVIEW") {
+        let path = std::path::Path::new(&dir).join("notice.png");
+        let file = std::fs::File::create(path).unwrap();
+        let mut enc = png::Encoder::new(std::io::BufWriter::new(file), 640, 480);
+        enc.set_color(png::ColorType::Rgba);
+        enc.set_depth(png::BitDepth::Eight);
+        enc.write_header().unwrap().write_image_data(&px).unwrap();
+    }
+    let _ = std::fs::remove_dir_all(&dir);
+    let mut hidden = Vec::new();
+    slot_ui::draw_notice(canvas, "a", "b", None, None, 0.0, &faces, &mut hidden);
+    let Some(Draw::Rect { y, h, .. }) = hidden.get(1) else {
+        panic!("no banner");
+    };
+    assert!(y + h <= 0.0, "a notice not yet shown sits above the screen");
+}
+
 fn shoot(name: &str, canvas: Canvas, screen: &NetScreen, s: &NetStatus) -> Vec<u8> {
     let mut faces = NetFaces::default();
     let mut cpu = Cpu { faces: Vec::new() };
@@ -472,6 +615,7 @@ fn shoot(name: &str, canvas: Canvas, screen: &NetScreen, s: &NetStatus) -> Vec<u
 #[test]
 fn every_page_draws_on_both_screen_widths() {
     let s = status();
+    slot_ui::set_online(true);
     for (tag, canvas) in [
         ("720", Canvas { w: 720.0, h: 480.0 }),
         ("640", Canvas { w: 640.0, h: 480.0 }),
@@ -489,6 +633,37 @@ fn every_page_draws_on_both_screen_widths() {
         shoot(&format!("{tag}-keyboard"), canvas, &n, &s);
         n.input(NetKey::Select, &s);
         shoot(&format!("{tag}-symbols"), canvas, &n, &s);
+        let mut n = NetScreen::new();
+        n.ach = ach();
+        for _ in 0..4 {
+            n.input(NetKey::Down, &s);
+        }
+        n.input(NetKey::A, &s);
+        shoot(&format!("{tag}-tailscale"), canvas, &n, &s);
+        let mut login = s.clone();
+        login.tail = slot_net::TailState::NeedsLogin {
+            url: Some("https://login.tailscale.com/a/1a2b3c4d5e6f".into()),
+        };
+        n.tail_row = 2;
+        n.input(NetKey::A, &login);
+        assert_eq!(n.page, NetPage::TailLogin);
+        let px = shoot(&format!("{tag}-tail-login"), canvas, &n, &login);
+        assert!(
+            px.chunks(4)
+                .filter(|p| p[0] == 0xff && p[1] == 0xff)
+                .count()
+                > 10_000,
+            "{tag}: no code"
+        );
+        let mut n = NetScreen::new();
+        n.ach = ach();
+        for _ in 0..5 {
+            n.input(NetKey::Down, &s);
+        }
+        shoot(&format!("{tag}-overview-lower"), canvas, &n, &s);
+        n.input(NetKey::A, &s);
+        assert_eq!(n.page, NetPage::Achievements);
+        shoot(&format!("{tag}-achievements"), canvas, &n, &s);
         let mut n = NetScreen::new();
         for _ in 0..3 {
             n.input(NetKey::Down, &s);

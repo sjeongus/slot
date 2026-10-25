@@ -1,12 +1,14 @@
-# slot, with Wi-Fi, Syncthing and RetroArch-compatible saves
+# slot, with Wi-Fi, Syncthing, Tailscale, RetroAchievements and RetroArch-compatible saves
 
 This is a fork of [BrandonKowalski/slot](https://github.com/BrandonKowalski/slot). It adds a
 **Settings > Network** page. Use it to join Wi-Fi, typing the password with the D-pad, and to keep
 `Saves/` and `States/` in step with your other devices through
-[Syncthing](https://syncthing.net). GBA saves and states are kept in RetroArch's layout, so they
-work with RetroArch on those devices. The clock sets itself from the network, time zone and
-daylight saving included. Everything else is upstream slot, and new upstream releases are merged
-in as they come.
+[Syncthing](https://syncthing.net). It puts the device on your [Tailscale](https://tailscale.com)
+tailnet and earns [RetroAchievements](https://retroachievements.org), online or off. GBA saves
+and states are kept in RetroArch's layout, so they work with RetroArch on those devices. The
+clock sets itself from the network, time zone and daylight saving included. A Wi-Fi mark beside
+the clock shows when the device is online. Everything else is upstream slot, and new upstream
+releases are merged in as they come.
 
 ## Using it
 
@@ -16,6 +18,8 @@ in as they come.
      joins.
    - Saved networks are joined automatically every time the device is on.
    - **Other Network…** at the bottom of the list joins a hidden network.
+   The Network page also has **Syncthing**, **Tailscale** and **Achievements**, each opening a
+   page of its own, and **Network Time** and **Time Zone**.
 3. **Syncthing** opens its own page. Turn **Syncthing** on there. Once the device is on Wi-Fi,
    **Details** shows:
    - this device's ID, as text and as a QR code you can scan from the Syncthing app on a phone;
@@ -69,6 +73,52 @@ writes plain ones, which every RetroArch version loads.
 - **GB and GBC:** these keep slot's own layout.
 - **Save Format → slot** goes back to slot's own layout for everything.
 
+### Tailscale
+
+1. Network → **Tailscale** → turn **Tailscale** on. It starts once Wi-Fi is connected.
+2. **Log In** opens a code and a link. Scan the code with your phone, or type the link into a
+   browser anywhere, and log in to Tailscale. The page moves on by itself once it has worked.
+3. **Address** and **Device Name** then show how to reach the handheld on your tailnet. The
+   name is `slot-` and the model, such as `slot-rg35xxh`.
+
+Notes:
+
+- The device keeps its identity in `Config/tailscale/`, so it stays the same device when you
+  reflash BaseOS. Delete that folder, or use **Log Out**, to remove it.
+- BaseOS's kernel has TUN built in, so Tailscale makes a real `tailscale0` interface and
+  everything on the handheld can use the tailnet, Syncthing included: add the handheld to
+  Syncthing elsewhere by its Tailscale address to sync away from home.
+- slot leaves DNS and the firewall to BaseOS (`--accept-dns=false`, `--netfilter-mode=off`).
+- Like Syncthing, Tailscale stops for link play and starts again afterwards.
+- Tailscale's daemon logs to `Logs/tailscale.log`.
+
+### RetroAchievements
+
+1. Network → **Achievements** → **Account**. Type your RetroAchievements user name, then your
+   password. Only the login token that comes back is kept, in `Config/achievements.txt`; the
+   password is not.
+2. Start a game. A notice shows how many of its achievements you have, and each unlock pops up
+   over the game with its badge.
+
+Notes:
+
+- **Softcore only.** RetroAchievements grants hardcore only to emulators it has approved, and
+  this fork is not one. Save states, rewind and fast-forward all stay available.
+- **Offline**, in the manner of [RAOfflineProxy](https://github.com/misantronic/RAOfflineProxy):
+  - The first time a game is played online, slot keeps its achievement set and your unlocks on
+    the card (`Config/achievements/`).
+  - Offline, that game's achievements still load and unlock. Each unlock is saved on the card
+    ("Saved, and sent once back online"), so a power-off does not lose it.
+  - Back online, saved unlocks are sent oldest first, each with how long ago it was earned
+    (RetroAchievements accepts up to 14 days). **Saved Unlocks** shows how many are waiting;
+    A sends them now.
+  - A game never played online has nothing to load offline.
+- Loading a state or rewinding restarts achievement tracking from that point, as RetroArch does
+  in softcore.
+- Requests go through BaseOS's own `curl`, with its CA certificates.
+- Achievement badges are saved in `Config/achievements/badges/` when a game loads online, so
+  they also show offline.
+
 ### Network time
 
 - **Network Time** turns on BaseOS's time service. It sets the clock from `pool.ntp.org` once
@@ -97,6 +147,7 @@ also edit on a computer while slot is off:
 wifi=on
 syncthing=on
 sync_in_game=off
+tailscale=on
 network_time=on
 auto_timezone=on
 timezone=America/Los_Angeles
@@ -108,6 +159,8 @@ psk=correct horse battery staple
 ```
 
 Passwords are stored as plain text on the card, as BaseOS does with its SSH password.
+
+RetroAchievements has a file of its own, `Config/achievements.txt` (`enabled`, `user`, `token`).
 
 ### Where Syncthing keeps things
 
@@ -131,6 +184,12 @@ Kept small on purpose, so upstream merges stay easy:
 | `crates/slot-net/` | **New.** Network thread, `wpa_supplicant` control, saved networks, Syncthing process and REST client. No dependencies. |
 | `card/System/slotnet.sh`, `card/test-slotnet.sh` | **New.** Starts and stops `wpa_supplicant`/`udhcpc` on `wlan0`, with off-device tests. |
 | `crates/slot-ui/src/net_screen.rs` | **New.** The Network pages and keyboard. |
+| `crates/slot-ui/src/notice.rs`, `wifi_mark.rs` | **New.** Achievement notices; the Wi-Fi mark. |
+| `crates/slot-ui/src/footer.rs` | 2 calls: the Wi-Fi mark beside both clocks. |
+| `crates/slot-net/src/tailscale.rs` | **New.** Runs `tailscaled`, reads `tailscale status`, logs in and out. |
+| `crates/slot-ach/` | **New.** RetroAchievements: rcheevos v12.5.0 (MIT, vendored), C glue, the offline layer, badges. |
+| `crates/slot-retro/src/libretro.rs`, `core.rs` | Keeps the core's memory map (`SET_MEMORY_MAPS`) for rcheevos. |
+| `crates/slot/src/emu.rs` | ~20 lines: an achievements session per game, run after each frame, reset after a state load or rewind. |
 | `crates/slot/src/app/net.rs` | **New.** The Network phase inside the App. |
 | `crates/slot/tests/network.rs`, `crates/slot-ui/tests/net_screen.rs` | **New.** Tests. |
 | `crates/slot/src/app.rs` | ~25 lines: a `Network` phase, routing to `app/net.rs`, `shutdown_net()` before power off, restart and repair; load-newest by time, decoded state reads, no eviction undo for RetroArch slots; the Save Format row, hidden in game. |
@@ -142,7 +201,7 @@ Kept small on purpose, so upstream merges stay easy:
 | `crates/slot/src/persist.rs` | GBA battery saves go to `Saves/mGBA/<game>.srm` under the RetroArch layout. |
 | `crates/slot-net/src/time.rs` | **New.** Time zone lookup, daylight-saving offsets from the zone database, BaseOS's NTP switch. |
 | `crates/slot/src/device_app.rs`, `host_app.rs` | Start the network at boot. |
-| `taskfile.yml`, `.github/workflows/release.yml` | Fetch, check and ship Syncthing. |
+| `taskfile.yml`, `.github/workflows/release.yml` | Fetch, check and ship Syncthing and Tailscale. |
 
 ## Taking new upstream releases
 
@@ -159,11 +218,14 @@ Conflicts, when they happen, are almost always in the lines listed above:
   and bump `ALL`'s length. The same for `QuickValue::RetroArch` and `SlotFormat`.
 - **`app.rs`**: keep the `| QuickRow::Network` arms next to `QuickRow::About`, and the
   `| QuickRow::SaveFormat` arms in the same matches.
+- **`emu.rs`**: keep `cheevos.frame()` right after the core runs a frame, `cheevos_stale` set
+  wherever a state is loaded, and `drop(cheevos)` before the worker returns.
 
 ## Building
 
-The same as upstream (`task dist:device`), plus a `syncthing` task that fetches the pinned
-release and checks its checksum. The host build (`cargo run`) shows a simulated radio with a few
+The same as upstream (`task dist:device`), plus `syncthing` and `tailscale` tasks that fetch the
+pinned releases and check their checksums. `slot-ach` compiles rcheevos with the system C
+compiler, which the device build's container already has. The host build (`cargo run`) shows a simulated radio with a few
 made-up networks; the password for "Home Wi-Fi" is `password1`.
 
 To run slot-net's tests against a real Syncthing, set `SLOT_TEST_SYNCTHING` to a Syncthing binary

@@ -111,6 +111,8 @@ struct Shared {
     locked: AtomicBool,
     present_ns: AtomicU64,
     requested: AtomicBool,
+    /// A state was loaded or the game rewound: achievements start watching afresh.
+    cheevos_stale: AtomicBool,
     clock: Mutex<Clock>,
     clocked: Condvar,
 }
@@ -186,6 +188,7 @@ impl EmuHandle {
             locked: AtomicBool::new(false),
             present_ns: AtomicU64::new(PRESENT.as_nanos() as u64),
             requested: AtomicBool::new(false),
+            cheevos_stale: AtomicBool::new(false),
             clock: Mutex::new(Clock::default()),
             clocked: Condvar::new(),
         });
@@ -579,6 +582,7 @@ impl Worker {
             .state
             .store(CoreState::Ready as u8, Ordering::Release);
         eprintln!("slot: emu: ready at {:.1} ms", crate::boot_time::ms());
+        let mut cheevos = slot_ach::Session::begin(&rom, core.as_mut());
 
         let mut out = Vec::new();
         let mut gated = (false, false);
@@ -628,6 +632,7 @@ impl Worker {
                                     );
                                         self.shared.sav_refused.store(true, Ordering::Release);
                                         self.shared.resume_refused.store(true, Ordering::Release);
+                                        self.shared.cheevos_stale.store(true, Ordering::Relaxed);
                                         c.prime();
                                         t.send(NETPACKET_RELIABLE, &cable::ready_packet());
                                     }
@@ -688,6 +693,7 @@ impl Worker {
                     core.set_frame_skip(false);
                     core.run_frame(ButtonMask(0));
                     self.publish(core.video_xrgb8888());
+                    self.shared.cheevos_stale.store(true, Ordering::Relaxed);
                 }
                 self.shared
                     .rewind_fill
@@ -754,6 +760,12 @@ impl Worker {
                         None => core.run_frame(input),
                     }
                     let took = frame_began.elapsed();
+                    if let Some(c) = cheevos.as_mut() {
+                        if self.shared.cheevos_stale.swap(false, Ordering::Relaxed) {
+                            c.reset();
+                        }
+                        c.frame();
+                    }
                     if last {
                         drawn = took;
                     } else {
@@ -853,6 +865,12 @@ impl Worker {
                 }
             }
 
+            if ceiling == 0 || rewinding {
+                if let Some(c) = cheevos.as_mut() {
+                    c.idle();
+                }
+            }
+
             if let Some((began, core_time)) = fast_span.take() {
                 post_cost = blend(post_cost, began.elapsed().saturating_sub(core_time));
             }
@@ -896,6 +914,8 @@ impl Worker {
         for cmd in self.cmds.try_iter() {
             self.apply(cmd, core.as_mut(), &mut transport, &mut cable, &link);
         }
+        // Achievements stop reading the core's memory before the core goes.
+        drop(cheevos);
         ring.set_muted(false);
         ring.set_idle(false);
         let (dropped, starved) = (ring.overruns(), ring.underruns());
@@ -923,6 +943,7 @@ impl Worker {
                 if let Err(e) = core.unserialize(&self.for_core(state)) {
                     eprintln!("slot: {e}");
                 }
+                self.shared.cheevos_stale.store(true, Ordering::Relaxed);
             }
             Cmd::Refresh => match core.serialize() {
                 Ok(state) => {

@@ -10,6 +10,8 @@ vars:
   # Network fork: the Syncthing release bundled at System/bin/syncthing.
   SYNCTHING_VERSION: v2.1.7
   SYNCTHING_SHA256: 48e456690cd2b97e7d26b02b5ac35f62a3b36172267b144cfeaf02c993ab955c
+  TAILSCALE_VERSION: 1.102.3
+  TAILSCALE_SHA256: a0fa1b154af8c61f862a2259f559f7396d96c0225f4a863eae2333e1546bbe25
   SLOT_IN_PROCESS: >-
     --test bios --test core --test core_options --test e2e --test emu --test gb_palette_recolour --test gpsp
     --test link_ui --test mgba_gb_link --test mgba_link --test render_colour_correction
@@ -331,6 +333,27 @@ tasks:
         echo "{{.SYNCTHING_VERSION}}" > vendor/syncthing.version
       - file vendor/syncthing | grep -q 'aarch64'
 
+  tailscale:
+    desc: >-
+      Fetch the pinned Tailscale linux-arm64 release for System/bin, checking it against the
+      checksum Tailscale publishes beside it
+    status:
+      - test -f vendor/tailscale && test -f vendor/tailscaled
+      - test "$(cat vendor/tailscale.version 2>/dev/null)" = "{{.TAILSCALE_VERSION}}"
+    cmds:
+      - |
+        set -euo pipefail
+        mkdir -p vendor
+        name="tailscale_{{.TAILSCALE_VERSION}}_arm64"
+        curl -fsSL -o "vendor/$name.tgz" "https://pkgs.tailscale.com/stable/$name.tgz"
+        echo "{{.TAILSCALE_SHA256}}  vendor/$name.tgz" | shasum -a 256 -c -
+        rm -rf "vendor/$name"
+        tar -xzf "vendor/$name.tgz" -C vendor
+        cp "vendor/$name/tailscale" "vendor/$name/tailscaled" vendor/
+        rm -rf "vendor/$name" "vendor/$name.tgz"
+        echo "{{.TAILSCALE_VERSION}}" > vendor/tailscale.version
+      - file vendor/tailscaled | grep -q 'aarch64'
+
   device:sh:
     desc: Run CMD on the box the device build wants, fetching one if this is not it
     internal: true
@@ -369,7 +392,7 @@ tasks:
 
   dist:device:
     desc: Build the SD2 tree for an H700 device, OUT defaults to ./dist-device
-    deps: [core:device, core:gpsp, fsck:exfat, syncthing, build:device]
+    deps: [core:device, core:gpsp, fsck:exfat, syncthing, tailscale, build:device]
     vars:
       OUT: '{{.OUT | default "dist-device"}}'
     cmds:
@@ -386,6 +409,7 @@ tasks:
       - cp vendor/gpsp_libretro.so {{.OUT}}/System/
       - cp vendor/fsck.exfat {{.OUT}}/System/
       - mkdir -p {{.OUT}}/System/bin && cp vendor/syncthing {{.OUT}}/System/bin/syncthing
+      - cp vendor/tailscale vendor/tailscaled {{.OUT}}/System/bin/
       - cp -r licenses {{.OUT}}/System/licenses
       - cp vendor/exfatprogs-{{.EXFATPROGS_VERSION}}.tar.gz {{.OUT}}/System/licenses/
       - cp vendor/syncthing-LICENSE.txt {{.OUT}}/System/licenses/syncthing-{{.SYNCTHING_VERSION}}-LICENSE.txt
@@ -408,14 +432,14 @@ tasks:
 
   deploy:device:
     desc: Build and push onto a device over adb, then restart it. SD defaults to /mnt/sdcard
-    deps: [core:device, core:gpsp, fsck:exfat, syncthing, build:device]
+    deps: [core:device, core:gpsp, fsck:exfat, syncthing, tailscale, build:device]
     cmds:
       - task: deploy:push
         vars: {SD: '{{.SD}}'}
 
   deploy:all:
     desc: Build and push onto every attached adb device, then restart each. SD defaults to /mnt/sdcard
-    deps: [core:device, core:gpsp, fsck:exfat, syncthing, build:device]
+    deps: [core:device, core:gpsp, fsck:exfat, syncthing, tailscale, build:device]
     vars:
       SERIALS:
         sh: adb devices | awk 'NR > 1 && $2 == "device" {print $1}'
@@ -443,6 +467,7 @@ tasks:
       - "{{.ADB}} push vendor/fsck.exfat '{{.SD}}/System/fsck.exfat'"
       - "{{.ADB}} shell mkdir -p '{{.SD}}/System/bin'"
       - "{{.ADB}} push vendor/syncthing '{{.SD}}/System/bin/syncthing'"
+      - "{{.ADB}} push vendor/tailscale vendor/tailscaled '{{.SD}}/System/bin/'"
       - "{{.ADB}} push licenses '{{.SD}}/System/'"
       - "{{.ADB}} push vendor/exfatprogs-{{.EXFATPROGS_VERSION}}.tar.gz '{{.SD}}/System/licenses/'"
       - |

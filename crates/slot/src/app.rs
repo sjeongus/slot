@@ -4168,6 +4168,7 @@ impl App {
             self.draw_game_menu(menu, out);
         }
         self.hud.draw(self.canvas(), self.now(), out);
+        self.draw_notice(out);
     }
 
     pub fn screen_shake(&self) -> f32 {

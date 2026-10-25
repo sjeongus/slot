@@ -75,6 +75,23 @@ impl From<std::io::Error> for CoreError {
     }
 }
 
+/// One entry of a core's memory map (libretro's `retro_memory_descriptor`), as the core gave
+/// it. The pointer is into the core and only good while it is loaded.
+#[derive(Copy, Clone, Debug)]
+pub struct MemoryDescriptor {
+    pub flags: u64,
+    pub ptr: *mut u8,
+    pub offset: usize,
+    pub start: usize,
+    pub select: usize,
+    pub disconnect: usize,
+    pub len: usize,
+}
+
+// SAFETY: the pointers are only followed on the emulator thread, between frames, while the
+// core that owns the memory is loaded.
+unsafe impl Send for MemoryDescriptor {}
+
 pub trait RetroCore: Send {
     fn load(&mut self, rom: &Path) -> Result<(), CoreError>;
     fn run_frame(&mut self, input: ButtonMask);
@@ -99,6 +116,15 @@ pub trait RetroCore: Send {
     fn start_link(&mut self, _client_id: u16) {}
     fn pump_link(&mut self) {}
     fn stop_link(&mut self) {}
+    /// The memory map the core declared, if it declared one.
+    fn memory_map(&self) -> Vec<MemoryDescriptor> {
+        Vec::new()
+    }
+    /// One of libretro's memory areas (`MEMORY_SYSTEM_RAM`, `MEMORY_SAVE_RAM`), as a pointer
+    /// and length into the core.
+    fn memory_raw(&mut self, _id: u32) -> Option<(*mut u8, usize)> {
+        None
+    }
 }
 
 #[cfg(test)]

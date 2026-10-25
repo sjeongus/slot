@@ -12,10 +12,10 @@ mod link;
 mod mock;
 mod rumble;
 
-pub use core::{AvInfo, ButtonMask, CoreError, RetroCore, GBA_H, GBA_W};
+pub use core::{AvInfo, ButtonMask, CoreError, MemoryDescriptor, RetroCore, GBA_H, GBA_W};
 pub use ffi::{
-    NETPACKET_BROADCAST, NETPACKET_FLUSH_HINT, NETPACKET_RELIABLE, NETPACKET_UNRELIABLE,
-    NETPACKET_UNSEQUENCED,
+    MEMORY_SAVE_RAM, MEMORY_SYSTEM_RAM, NETPACKET_BROADCAST, NETPACKET_FLUSH_HINT,
+    NETPACKET_RELIABLE, NETPACKET_UNRELIABLE, NETPACKET_UNSEQUENCED,
 };
 pub use libretro::LibretroCore;
 pub use link::{Link, LinkChannel, LoopbackLink};

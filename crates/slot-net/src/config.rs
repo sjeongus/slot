@@ -42,6 +42,8 @@ pub struct NetConfig {
     pub timezone: String,
     /// Keep GBA saves and states in RetroArch's layout, so they sync with RetroArch.
     pub retroarch_saves: bool,
+    /// Run Tailscale, so the device is on the tailnet whenever it is online.
+    pub tailscale: bool,
     /// Most recently joined first; the supplicant prefers them in this order.
     pub networks: Vec<Network>,
     /// Chosen once, so the web UI password and the API key survive restarts.
@@ -60,6 +62,7 @@ impl Default for NetConfig {
             auto_timezone: true,
             timezone: String::new(),
             retroarch_saves: true,
+            tailscale: false,
             networks: Vec::new(),
             syncthing_api_key: String::new(),
             syncthing_password: String::new(),
@@ -158,6 +161,7 @@ impl NetConfig {
                     "slot" => c.retroarch_saves = false,
                     _ => {}
                 },
+                "tailscale" => c.tailscale = flag(v).unwrap_or(c.tailscale),
                 "syncthing_api_key" => c.syncthing_api_key = v.trim().to_string(),
                 "syncthing_password" => c.syncthing_password = v.trim().to_string(),
                 _ => c.extra.push((k.trim().to_string(), v.to_string())),
@@ -190,6 +194,7 @@ impl NetConfig {
                 "slot"
             }
         );
+        s += &format!("tailscale={}\n", on_off(self.tailscale));
         if !self.syncthing_api_key.is_empty() {
             s += &format!("syncthing_api_key={}\n", self.syncthing_api_key);
         }

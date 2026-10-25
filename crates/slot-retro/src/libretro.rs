@@ -38,6 +38,7 @@ struct Host {
     options: std::collections::HashMap<String, std::ffi::CString>,
     options_dirty: bool,
     declared: std::collections::HashMap<String, Vec<String>>,
+    memory_map: Vec<crate::core::MemoryDescriptor>,
 }
 
 thread_local! {
@@ -200,6 +201,29 @@ unsafe extern "C" fn environment(cmd: c_uint, data: *mut c_void) -> bool {
             }
             let cb = std::ptr::read(data as *const AudioBufferStatusCallback);
             with_host(|h| h.audio_status = cb.callback).is_some()
+        }
+        SET_MEMORY_MAPS => {
+            if data.is_null() {
+                return false;
+            }
+            let map = &*(data as *const MemoryMapC);
+            let descs = match map.descriptors.is_null() {
+                true => &[][..],
+                false => std::slice::from_raw_parts(map.descriptors, map.num_descriptors as usize),
+            };
+            let copied = descs
+                .iter()
+                .map(|d| crate::core::MemoryDescriptor {
+                    flags: d.flags,
+                    ptr: d.ptr as *mut u8,
+                    offset: d.offset,
+                    start: d.start,
+                    select: d.select,
+                    disconnect: d.disconnect,
+                    len: d.len,
+                })
+                .collect();
+            with_host(|h| h.memory_map = copied).is_some()
         }
         SET_NETPACKET_INTERFACE => {
             if data.is_null() {
@@ -485,6 +509,7 @@ impl LibretroCore {
             options: std::collections::HashMap::new(),
             options_dirty: false,
             declared: std::collections::HashMap::new(),
+            memory_map: Vec::new(),
         });
         unsafe {
             let _a = Active::bind(&mut host);
@@ -705,6 +730,14 @@ impl RetroCore for LibretroCore {
         let _a = Active::bind(&mut self.host);
         unsafe { halt_link() };
     }
+
+    fn memory_map(&self) -> Vec<crate::core::MemoryDescriptor> {
+        self.host.memory_map.clone()
+    }
+
+    fn memory_raw(&mut self, id: u32) -> Option<(*mut u8, usize)> {
+        self.memory_mut(id).map(|m| (m.as_mut_ptr(), m.len()))
+    }
 }
 
 #[cfg(test)]
@@ -731,6 +764,7 @@ mod tests {
             options,
             options_dirty,
             declared: HashMap::new(),
+            memory_map: Vec::new(),
         })
     }
 

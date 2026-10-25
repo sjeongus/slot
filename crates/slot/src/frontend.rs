@@ -220,6 +220,14 @@ impl Frontend {
         }
         let net = slot_net::start(root, None);
         self.session.app_mut().set_net(net);
+        let build = crate::build_info::Build::current();
+        slot_ach::start(
+            root,
+            &format!(
+                "slot-net/{} (+https://github.com/sjeongus/slot) rcheevos/12.5.0",
+                build.version
+            ),
+        );
     }
 
     fn upload_paper(compositor: &mut Compositor) {

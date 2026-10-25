@@ -37,6 +37,9 @@ jobs:
           file "$out/System/mgba_libretro.so" | grep -q aarch64
           file "$out/System/gpsp_libretro.so" | grep -q aarch64
           file "$out/System/bin/syncthing" | grep -q aarch64
+          file "$out/System/bin/tailscaled" | grep -q aarch64
+          file "$out/System/bin/tailscale" | grep -q aarch64
+          test -f "$out/System/licenses/rcheevos-MIT.txt"
           test -f "$out/System/slotnet.sh"
           test -x "$out/System/slot"
           gpsp_src_sha="$(cat vendor/gpsp-src.sha)"

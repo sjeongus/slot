@@ -14,7 +14,8 @@
 
 # About this fork
 
-This is [slot](https://github.com/BrandonKowalski/slot) with **Wi-Fi and Syncthing** added.
+This is [slot](https://github.com/BrandonKowalski/slot) with **Wi-Fi, Syncthing, Tailscale and
+RetroAchievements** added.
 Everything else is upstream slot, kept as close to it as possible so new releases merge in
 cleanly.
 
@@ -36,6 +37,12 @@ there's no way to sync saves without pulling the SD card. This fork adds:
   whichever device wrote it.
 - **Network time.** The clock sets itself over NTP. The time zone is found automatically, with
   daylight saving followed, so state timestamps are right.
+- **[Tailscale](https://tailscale.com)**, bundled. Log in by scanning a code on screen or opening
+  its link on another device, and the handheld joins your tailnet whenever it is online.
+- **[RetroAchievements](https://retroachievements.org)**, with offline play. Log in with the
+  on-screen keyboard; unlocks pop up over the game. Offline, achievements still unlock from what
+  was saved the last time the game was played online, and are sent once you are back online.
+- **A Wi-Fi mark** beside the clock while the device is online.
 
 Set-up, where things are stored, and how upstream releases are merged are in
 **[FORK.md](FORK.md)**. Builds come from this repo's

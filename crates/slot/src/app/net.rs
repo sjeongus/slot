@@ -220,6 +220,9 @@ impl App {
 
     pub(super) fn open_network(&mut self) {
         self.net.screen = NetScreen::new();
+        // A new screen starts with an empty achievements summary; fill it in now rather than
+        // at the next change, or Achievements reads OFF while it is on.
+        self.net.ach_seen = 0;
         self.phase = Phase::Network;
         self.sync_net();
     }

@@ -608,6 +608,11 @@ impl Frontend {
         sync_binding_faces(self.session.app_mut(), compositor);
         sync_about(self.session.app_mut(), compositor, &mut self.about);
         sync_net_faces(self.session.app_mut(), compositor, &mut self.net_spare);
+        for ink in slot_ui::wifi_mark_wanted() {
+            let face = slot_ui::wifi_mark_face(ink);
+            let id = compositor.create_texture(face.w, face.h, &face.rgba);
+            slot_ui::set_wifi_mark_face(ink, id, face.w, face.h);
+        }
         sync_quick_clock(self.session.app_mut(), compositor, &mut self.quick_clock);
         sync_quick_palette(self.session.app_mut(), compositor, &mut self.quick_palette);
         sync_wallpaper(self.session.app_mut(), compositor, &mut self.wallpaper);

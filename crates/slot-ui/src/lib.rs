@@ -115,4 +115,7 @@ pub use sticker::{
     CREDITS, DC, HOME, ORIGIN, STICKER_H, STICKER_W,
 };
 pub use toast::{toast_box, toast_face, toast_rect, Toast};
-pub use wifi_mark::{draw_wifi_mark, online as wifi_mark_shown, set_online};
+pub use wifi_mark::{
+    draw_wifi_mark, online as wifi_mark_shown, reset_wifi_mark_faces, set_online,
+    set_wifi_mark_face, wifi_mark_face, wifi_mark_wanted,
+};

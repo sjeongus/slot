@@ -361,6 +361,12 @@ struct Cpu {
 
 impl Cpu {
     fn fill(&mut self, net: &mut NetFaces) {
+        for ink in slot_ui::wifi_mark_wanted() {
+            let face = slot_ui::wifi_mark_face(ink);
+            let id = TexId::from_raw(self.faces.len());
+            slot_ui::set_wifi_mark_face(ink, id, face.w, face.h);
+            self.faces.push(face);
+        }
         for f in net.take_wanted() {
             let face = net_face(&f);
             let id = TexId::from_raw(self.faces.len());
@@ -531,6 +537,7 @@ fn a_notice_slides_in_with_its_badge() {
     let canvas = Canvas { w: 640.0, h: 480.0 };
     let mut faces = NetFaces::default();
     let mut cpu = Cpu { faces: Vec::new() };
+    slot_ui::reset_wifi_mark_faces();
     let mut draws = Vec::new();
     for _ in 0..2 {
         draws.clear();
@@ -568,6 +575,7 @@ fn a_notice_slides_in_with_its_badge() {
 fn shoot(name: &str, canvas: Canvas, screen: &NetScreen, s: &NetStatus) -> Vec<u8> {
     let mut faces = NetFaces::default();
     let mut cpu = Cpu { faces: Vec::new() };
+    slot_ui::reset_wifi_mark_faces();
     let mut draws = Vec::new();
     for _ in 0..2 {
         draws.clear();

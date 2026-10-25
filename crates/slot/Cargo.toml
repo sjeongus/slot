@@ -8,11 +8,12 @@ license.workspace = true
 [features]
 default = ["host"]
 host = ["dep:winit", "dep:cpal", "dep:gilrs", "slot-gfx/host"]
-device = ["slot-gfx/device"]
+device = ["slot-gfx/device", "slot-net/device"]
 
 [dependencies]
 slot-gfx = { path = "../slot-gfx", default-features = false }
 slot-input = { path = "../slot-input" }
+slot-net = { path = "../slot-net" }
 slot-power = { path = "../slot-power" }
 slot-retro = { path = "../slot-retro" }
 slot-store = { path = "../slot-store" }

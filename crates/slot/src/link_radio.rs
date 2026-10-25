@@ -110,6 +110,8 @@ fn run(sub: &str) -> bool {
 
 #[cfg(feature = "device")]
 pub fn up(role: LinkRole, cancel: &Cancel) -> Result<(), RadioFail> {
+    // Home Wi-Fi and Syncthing step aside: link play needs the radio to itself.
+    slot_net::hold_for_link();
     let mut child = link(role.arg())
         .spawn()
         .map_err(|e| RadioFail::Radio(format!("link {} would not start: {e}", role.arg())))?;
@@ -137,6 +139,7 @@ pub fn up(role: LinkRole, cancel: &Cancel) -> Result<(), RadioFail> {
 #[cfg(feature = "device")]
 pub fn down() {
     let _ = link("down").status();
+    slot_net::release_after_link();
 }
 
 #[cfg(not(feature = "device"))]

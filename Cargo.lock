@@ -1873,6 +1873,7 @@ dependencies = [
  "png 0.17.16",
  "slot-gfx",
  "slot-input",
+ "slot-net",
  "slot-power",
  "slot-retro",
  "slot-store",
@@ -1895,6 +1896,10 @@ dependencies = [
 
 [[package]]
 name = "slot-input"
+version = "0.1.0"
+
+[[package]]
+name = "slot-net"
 version = "0.1.0"
 
 [[package]]

@@ -1,0 +1,16 @@
+[package]
+name = "slot-net"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Wi-Fi and Syncthing for slot: saved networks, the supplicant, and a Syncthing service"
+
+[features]
+default = []
+# Run the real supplicant, DHCP client and Syncthing binary. Without it, a simulated
+# backend answers with a few made-up networks so the host build can drive the screens.
+device = []
+
+# No dependencies on purpose: this crate builds and tests anywhere Rust does.
+[dependencies]

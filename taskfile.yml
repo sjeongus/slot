@@ -93,6 +93,7 @@ tasks:
     desc: Test the scripts slot ships on the card, off-device
     cmds:
       - sh card/test-slotlink.sh
+      - sh card/test-slotnet.sh
       - sh card/test-led.sh
       - sh card/test-lid.sh
       - sh card/test-coresave.sh

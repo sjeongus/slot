@@ -55,10 +55,14 @@ pub fn eject(
 
 pub fn write_sav(root: &Path, platform: Platform, stem: &str, sav: &[u8]) -> std::io::Result<bool> {
     let path = sav_path(root, platform, stem);
-    if let Ok(Some(old)) = read_sav(root, platform, stem) {
-        if old == sav {
-            return Ok(false);
-        }
+    let same = match slot_store::retroarch_save_path(root, platform, stem) {
+        // RetroArch layout: only the file at the new path counts, so the first write after
+        // switching lands there even when slot's old .sav holds the same bytes.
+        Some(ra) => slot_store::read_decoded(&ra).is_ok_and(|old| old == sav),
+        None => matches!(read_sav(root, platform, stem), Ok(Some(old)) if old == sav),
+    };
+    if same {
+        return Ok(false);
     }
     if let Some(dir) = path.parent() {
         std::fs::create_dir_all(dir)?;
@@ -71,7 +75,18 @@ pub fn read_sav(root: &Path, platform: Platform, stem: &str) -> std::io::Result<
     let srm = crate::root::saves_dir(root)
         .join(platform.dir_name())
         .join(format!("{stem}.srm"));
-    for path in [sav_path(root, platform, stem), srm] {
+    if let Some(ra) = slot_store::retroarch_save_path(root, platform, stem) {
+        // RetroArch's .srm first (it may be rzip compressed), then slot's older files.
+        match slot_store::read_decoded(&ra) {
+            Ok(bytes) => return Ok(Some(bytes)),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+            Err(e) => return Err(e),
+        }
+    }
+    let legacy = crate::root::saves_dir(root)
+        .join(platform.dir_name())
+        .join(format!("{stem}.sav"));
+    for path in [legacy, srm] {
         match std::fs::read(&path) {
             Ok(bytes) => return Ok(Some(bytes)),
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
@@ -91,6 +106,9 @@ pub fn read_resume(
 }
 
 fn sav_path(root: &Path, platform: Platform, stem: &str) -> PathBuf {
+    if let Some(ra) = slot_store::retroarch_save_path(root, platform, stem) {
+        return ra;
+    }
     crate::root::saves_dir(root)
         .join(platform.dir_name())
         .join(format!("{stem}.sav"))

@@ -211,6 +211,9 @@ impl Frontend {
     /// and Syncthing starts if it was left on. Models BaseOS builds without Wi-Fi (the RG28XX)
     /// get no thread, and the Network row stays hidden.
     pub fn start_network(&mut self, root: &std::path::Path) {
+        // The save layout is a setting of its own; it applies with or without Wi-Fi.
+        let saved = slot_net::NetConfig::load(root);
+        crate::app::set_save_layout(saved.retroarch_saves);
         if crate::baseos::var("BASEOS_WIFI").as_deref() == Some("0") {
             self.session.app_mut().set_no_wifi();
             return;

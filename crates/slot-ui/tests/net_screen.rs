@@ -38,6 +38,11 @@ fn status() -> NetStatus {
         },
         device_id: Some("MFZWI3D-BONSGYC-YLTMRWG-C43ENR5-QXGZDMM-FZWI3DP-BONSGYY-LTMRWAD".into()),
         web_password: "k4pz9qw2ma".into(),
+        network_time: true,
+        time_synced: true,
+        auto_timezone: true,
+        timezone: Some("America/Los_Angeles".into()),
+        retroarch_saves: true,
         generation: 1,
     }
 }
@@ -80,6 +85,18 @@ fn overview_toggles_ask_for_the_opposite_state() {
     assert_eq!(n.page, NetPage::Sync);
     n.input(NetKey::B, &s);
     assert_eq!(n.page, NetPage::Overview);
+    n.input(NetKey::Down, &s);
+    assert_eq!(n.overview_row(), OverviewRow::NetworkTime);
+    assert_eq!(n.input(NetKey::A, &s), NetIntent::SetNetworkTime(false));
+    n.input(NetKey::Down, &s);
+    assert_eq!(
+        n.input(NetKey::Right, &s),
+        NetIntent::SetAutoTimezone(false)
+    );
+    n.input(NetKey::Down, &s);
+    assert_eq!(n.input(NetKey::A, &s), NetIntent::SetRetroArchSaves(false));
+    n.input(NetKey::Down, &s);
+    assert_eq!(n.overview_row(), OverviewRow::Wifi, "the list wraps");
     assert_eq!(n.input(NetKey::B, &s), NetIntent::Close);
 }
 

@@ -9,6 +9,7 @@ pub mod http;
 pub mod json;
 pub mod service;
 pub mod syncthing;
+pub mod time;
 pub mod wifi;
 pub mod wpa;
 
@@ -55,7 +56,13 @@ pub fn start(root: &Path, country: Option<String>) -> Net {
             &cfg_keys.0,
             &cfg_keys.1,
         );
-        Net::start(root, Box::new(wifi), Box::new(sync), country)
+        Net::start(
+            root,
+            Box::new(wifi),
+            Box::new(sync),
+            Box::new(time::BaseosClock::new()),
+            country,
+        )
     }
     #[cfg(not(feature = "device"))]
     {
@@ -63,6 +70,7 @@ pub fn start(root: &Path, country: Option<String>) -> Net {
             root,
             Box::new(wifi::SimWifi::new()),
             Box::new(syncthing::SimSync::new()),
+            Box::new(time::SimClock::default()),
             country,
         )
     }

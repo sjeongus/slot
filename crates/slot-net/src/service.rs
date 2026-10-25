@@ -8,6 +8,7 @@ use std::time::{Duration, Instant};
 
 use crate::config::{NetConfig, Network};
 use crate::syncthing::{SyncEngine, GUI_PORT};
+use crate::time::Clock;
 use crate::wifi::WifiDriver;
 use crate::wpa::{self, ScanResult};
 
@@ -22,6 +23,10 @@ const SLOW: Duration = Duration::from_secs(8);
 const SYNC_POLL_FAST: Duration = Duration::from_secs(3);
 const SYNC_POLL_SLOW: Duration = Duration::from_secs(30);
 const SYNC_START_LIMIT: Duration = Duration::from_secs(90);
+/// How often the time zone is looked up again while online, and how soon after a failure.
+const ZONE_EVERY: Duration = Duration::from_secs(24 * 3600);
+const ZONE_RETRY: Duration = Duration::from_secs(10 * 60);
+const SYNCED_POLL: Duration = Duration::from_secs(30);
 /// Link play waits at most this long for slot's Wi-Fi to step aside.
 const HOLD_LIMIT: Duration = Duration::from_secs(10);
 
@@ -74,6 +79,13 @@ pub struct NetStatus {
     pub sync: SyncState,
     pub device_id: Option<String>,
     pub web_password: String,
+    pub network_time: bool,
+    /// NTP has set the clock since boot.
+    pub time_synced: bool,
+    pub auto_timezone: bool,
+    /// The zone in use, found or remembered; None until one is known.
+    pub timezone: Option<String>,
+    pub retroarch_saves: bool,
     /// Bumped on every change so screens know to redraw their text.
     pub generation: u64,
 }
@@ -107,6 +119,9 @@ enum Cmd {
     Forget(String),
     SetSyncthing(bool),
     SetSyncInGame(bool),
+    SetNetworkTime(bool),
+    SetAutoTimezone(bool),
+    SetRetroArchSaves(bool),
     Playing(bool),
     Watching(bool),
     Hold(Sender<()>),
@@ -147,6 +162,7 @@ impl Net {
         root: &Path,
         wifi: Box<dyn WifiDriver>,
         sync: Box<dyn SyncEngine>,
+        clock: Box<dyn Clock>,
         country: Option<String>,
     ) -> Net {
         let mut config = NetConfig::load(root);
@@ -173,6 +189,11 @@ impl Net {
             sync: SyncState::Off,
             device_id: None,
             web_password: config.syncthing_password.clone(),
+            network_time: config.network_time,
+            time_synced: false,
+            auto_timezone: config.auto_timezone,
+            timezone: Some(config.timezone.clone()).filter(|z| !z.is_empty()),
+            retroarch_saves: config.retroarch_saves,
             generation: 1,
         }));
         let (tx, rx) = channel();
@@ -181,6 +202,7 @@ impl Net {
             config,
             wifi,
             sync,
+            clock,
             status: status.clone(),
             country,
             running: false,
@@ -196,6 +218,8 @@ impl Net {
             sync_paused: None,
             sync_ready: false,
             sync_failed: None,
+            zone_checked: None,
+            synced_polled: None,
         };
         let _ = std::thread::Builder::new()
             .name("slot-net".into())
@@ -250,6 +274,19 @@ impl Net {
 
     pub fn set_sync_in_game(&self, on: bool) {
         self.send(Cmd::SetSyncInGame(on))
+    }
+
+    pub fn set_network_time(&self, on: bool) {
+        self.send(Cmd::SetNetworkTime(on))
+    }
+
+    pub fn set_auto_timezone(&self, on: bool) {
+        self.send(Cmd::SetAutoTimezone(on))
+    }
+
+    /// Records the save layout choice; slot switches its own layout at the same time.
+    pub fn set_retroarch_saves(&self, on: bool) {
+        self.send(Cmd::SetRetroArchSaves(on))
     }
 
     /// A game is running (true) or the cart came out (false).
@@ -325,6 +362,7 @@ struct Worker {
     config: NetConfig,
     wifi: Box<dyn WifiDriver>,
     sync: Box<dyn SyncEngine>,
+    clock: Box<dyn Clock>,
     status: Arc<Mutex<NetStatus>>,
     country: Option<String>,
     running: bool,
@@ -340,10 +378,18 @@ struct Worker {
     sync_paused: Option<bool>,
     sync_ready: bool,
     sync_failed: Option<String>,
+    /// When the zone was last looked up, and whether that worked.
+    zone_checked: Option<(Instant, bool)>,
+    synced_polled: Option<Instant>,
 }
 
 impl Worker {
     fn run(mut self, rx: Receiver<Cmd>) {
+        self.clock.set_ntp(self.config.network_time);
+        if !self.config.timezone.is_empty() {
+            let zone = self.config.timezone.clone();
+            self.clock.set_timezone(&zone);
+        }
         loop {
             self.reconcile();
             let period = if self.busy() { FAST } else { SLOW };
@@ -392,16 +438,16 @@ impl Worker {
             .iter()
             .map(|n| n.ssid.clone())
             .collect();
-        let (wifi, sync, in_game) = (
-            self.config.wifi,
-            self.config.syncthing,
-            self.config.sync_in_game,
-        );
+        let c = self.config.clone();
         self.update(|s| {
             s.saved = saved;
-            s.wifi_on = wifi;
-            s.syncthing_on = sync;
-            s.sync_in_game = in_game;
+            s.wifi_on = c.wifi;
+            s.syncthing_on = c.syncthing;
+            s.sync_in_game = c.sync_in_game;
+            s.network_time = c.network_time;
+            s.auto_timezone = c.auto_timezone;
+            s.timezone = Some(c.timezone.clone()).filter(|z| !z.is_empty());
+            s.retroarch_saves = c.retroarch_saves;
         });
     }
 
@@ -466,6 +512,25 @@ impl Worker {
             }
             Cmd::SetSyncInGame(on) => {
                 self.config.sync_in_game = on;
+                self.save();
+            }
+            Cmd::SetNetworkTime(on) => {
+                self.config.network_time = on;
+                self.clock.set_ntp(on);
+                if !on {
+                    self.update(|s| s.time_synced = false);
+                }
+                self.synced_polled = None;
+                self.save();
+            }
+            Cmd::SetAutoTimezone(on) => {
+                self.config.auto_timezone = on;
+                // Look again straight away when it is turned back on.
+                self.zone_checked = None;
+                self.save();
+            }
+            Cmd::SetRetroArchSaves(on) => {
+                self.config.retroarch_saves = on;
                 self.save();
             }
             Cmd::Playing(p) => self.playing = p,
@@ -583,7 +648,43 @@ impl Worker {
             self.watch_wifi();
             self.watch_scan();
         }
+        self.reconcile_time();
         self.reconcile_sync();
+    }
+
+    fn reconcile_time(&mut self) {
+        let online = self.running && lock(&self.status).ip().is_some();
+        if !online {
+            return;
+        }
+        if self.config.network_time && self.synced_polled.is_none_or(|t| t.elapsed() > SYNCED_POLL)
+        {
+            self.synced_polled = Some(Instant::now());
+            let synced = self.clock.ntp_synced();
+            self.update(|s| s.time_synced = synced);
+        }
+        if !self.config.auto_timezone {
+            return;
+        }
+        let due = match self.zone_checked {
+            None => true,
+            Some((at, true)) => at.elapsed() > ZONE_EVERY,
+            Some((at, false)) => at.elapsed() > ZONE_RETRY,
+        };
+        if !due {
+            return;
+        }
+        let found = self.clock.lookup_zone();
+        self.zone_checked = Some((Instant::now(), found.is_some()));
+        let Some(zone) = found else {
+            return;
+        };
+        if zone != self.config.timezone {
+            eprintln!("slot-net: time zone is {zone}");
+            self.config.timezone = zone.clone();
+            self.save();
+        }
+        self.clock.set_timezone(&zone);
     }
 
     fn watch_wifi(&mut self) {
@@ -795,6 +896,7 @@ mod tests {
             root,
             Box::new(SimWifi::new()),
             Box::new(SimSync::new()),
+            Box::new(crate::time::SimClock::default()),
             None,
         );
         net.watching(true);
@@ -931,6 +1033,29 @@ mod tests {
         net.set_wifi(false);
         wait(&net, "off", |s| s.wifi == WifiState::Off && !s.wifi_on);
         assert!(!NetConfig::load(d.path()).wifi);
+        net.shutdown();
+    }
+
+    #[test]
+    fn the_time_zone_is_found_once_online_and_remembered() {
+        let d = crate::testdir::TestDir::new("net");
+        let net = start(d.path());
+        assert_eq!(net.status().timezone, None);
+        net.join("Coffee Shop", "", false);
+        let s = wait(&net, "zone", |s| s.timezone.is_some());
+        assert_eq!(s.timezone.as_deref(), Some("America/Los_Angeles"));
+        let s = wait(&net, "synced", |s| s.time_synced);
+        assert!(s.network_time);
+        assert_eq!(NetConfig::load(d.path()).timezone, "America/Los_Angeles");
+        net.set_network_time(false);
+        net.set_auto_timezone(false);
+        net.set_retroarch_saves(false);
+        let s = wait(&net, "settings", |s| {
+            !s.network_time && !s.auto_timezone && !s.retroarch_saves
+        });
+        assert!(!s.time_synced);
+        let c = NetConfig::load(d.path());
+        assert!(!c.network_time && !c.auto_timezone && !c.retroarch_saves);
         net.shutdown();
     }
 

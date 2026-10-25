@@ -22,6 +22,8 @@ pub struct NetUi {
     pub faces: NetFaces,
     told_playing: Option<bool>,
     told_watching: bool,
+    /// When the time zone's offset was last applied to slot's clock.
+    zone_at: Option<u64>,
     /// BaseOS says this model has no Wi-Fi (the RG28XX), so the Network row is hidden.
     no_wifi: bool,
 }
@@ -39,6 +41,11 @@ fn quiet_status() -> NetStatus {
         sync: SyncState::Off,
         device_id: None,
         web_password: String::new(),
+        network_time: false,
+        time_synced: false,
+        auto_timezone: false,
+        timezone: None,
+        retroarch_saves: slot_store::layout() == slot_store::Layout::RetroArch,
         generation: 0,
     }
 }
@@ -129,6 +136,15 @@ impl App {
             NetIntent::Forget(ssid) => net.forget(&ssid),
             NetIntent::SetSyncthing(on) => net.set_syncthing(on),
             NetIntent::SetSyncInGame(on) => net.set_sync_in_game(on),
+            NetIntent::SetNetworkTime(on) => net.set_network_time(on),
+            NetIntent::SetAutoTimezone(on) => {
+                net.set_auto_timezone(on);
+                self.net.zone_at = None;
+            }
+            NetIntent::SetRetroArchSaves(on) => {
+                net.set_retroarch_saves(on);
+                set_save_layout(on);
+            }
         }
     }
 
@@ -142,14 +158,23 @@ impl App {
     /// Once a frame: picks up a new status, and tells the network thread whether a game is
     /// running and whether anyone is looking at the screen.
     pub(super) fn sync_net(&mut self) {
+        // The RetroArch layout names states by file time; keep it in step with slot's clock.
+        slot_store::set_wall_offset_min(self.state.utc_offset_min);
         let Some(net) = &self.net.net else {
             return;
         };
         let generation = net.generation();
         if generation != self.net.seen {
-            self.net.status = Some(net.status());
+            let status = net.status();
+            set_save_layout(status.retroarch_saves);
+            self.net.status = Some(status);
             self.net.seen = generation;
+            self.net.zone_at = None;
         }
+        self.follow_zone();
+        let Some(net) = &self.net.net else {
+            return;
+        };
         let playing = matches!(
             self.phase,
             Phase::Inserting { .. } | Phase::Playing { .. } | Phase::Ejecting { .. }
@@ -162,6 +187,38 @@ impl App {
         if self.net.told_watching != watching {
             net.watching(watching);
             self.net.told_watching = watching;
+        }
+    }
+
+    /// With the time zone on automatic, keeps slot's UTC offset at the zone's current one, so
+    /// the clock moves for daylight saving by itself. Checked every 30 s, which is plenty.
+    fn follow_zone(&mut self) {
+        let Some(status) = &self.net.status else {
+            return;
+        };
+        let (true, Some(zone)) = (status.auto_timezone, status.timezone.clone()) else {
+            return;
+        };
+        let now = self.now();
+        if self
+            .net
+            .zone_at
+            .is_some_and(|at| now.saturating_sub(at) < 30_000)
+        {
+            return;
+        }
+        self.net.zone_at = Some(now);
+        let Some(secs) = slot_net::time::zone_offset_secs(&zone, self.utc_secs()) else {
+            return;
+        };
+        let minutes = (secs / 60).clamp(
+            i32::from(slot_store::UTC_OFFSET_MIN),
+            i32::from(slot_store::UTC_OFFSET_MAX),
+        ) as i16;
+        if minutes != self.state.utc_offset_min {
+            eprintln!("slot: clock: {zone} is UTC{minutes:+} min now");
+            self.state.utc_offset_min = minutes;
+            self.persist();
         }
     }
 
@@ -198,4 +255,12 @@ impl App {
             out,
         );
     }
+}
+
+/// Switches every save and state from here on between RetroArch's layout and slot's own.
+pub fn set_save_layout(retroarch: bool) {
+    slot_store::set_layout(match retroarch {
+        true => slot_store::Layout::RetroArch,
+        false => slot_store::Layout::Slot,
+    });
 }

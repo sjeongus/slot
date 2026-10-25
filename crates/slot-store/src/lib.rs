@@ -15,6 +15,7 @@ mod gb_palette;
 mod gba;
 pub mod ini;
 mod platform;
+mod retroarch;
 mod ring;
 mod scan;
 mod shots;
@@ -35,7 +36,12 @@ pub use core::{
 pub use gb_palette::{GbColors, GbPalette};
 pub use gba::{header_clean, header_code, header_title, header_title_code};
 pub use platform::Platform;
-pub use ring::{StateEntry, StateRing, RING_MAX};
+pub use retroarch::{
+    core_dir, decode as decode_retroarch, layout, read_decoded, save_path as retroarch_save_path,
+    set_layout, set_wall_offset_min, DecodeError, Layout, RaRing, StateRing, PRIVATE_DIR,
+    SAVES_DIR as RETROARCH_SAVES_DIR,
+};
+pub use ring::{StateEntry, RING_MAX};
 pub use scan::{initial, is_hidden, listing, scan, sort_key, Cart, StoreError};
 pub use shots::{shot_stamp, ShotDir, ShotEntry, SCREENSHOTS_DIR};
 pub use slot_state::{

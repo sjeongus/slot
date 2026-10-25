@@ -30,6 +30,12 @@ there's no way to sync saves without pulling the SD card. This fork adds:
   Syncing pauses while a game is running, so another device's save can't land under it.
 - **Link play still works.** Starting a link sets home Wi-Fi and Syncthing aside, and ending it
   brings them back.
+- **RetroArch-compatible GBA saves and states.** Battery saves go to `Saves/mGBA/<game>.srm`, and
+  states to `States/mGBA/<game>.state`, `.state1`, … and `.state.auto`, so they load in RetroArch
+  on other devices and the other way round. On insert, slot resumes from the newest state,
+  whichever device wrote it.
+- **Network time.** The clock sets itself over NTP. The time zone is found automatically, with
+  daylight saving followed, so state timestamps are right.
 
 Set-up, where things are stored, and how upstream releases are merged are in
 **[FORK.md](FORK.md)**. Builds come from this repo's

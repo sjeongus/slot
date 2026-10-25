@@ -28,12 +28,47 @@ pub fn request(
     body: Option<&str>,
     timeout: Duration,
 ) -> std::io::Result<Response> {
+    send(
+        addr,
+        &addr.to_string(),
+        method,
+        path,
+        Some(api_key),
+        body,
+        timeout,
+    )
+}
+
+/// A plain GET to a public host, for lookups that need nothing secret.
+pub fn get(host: &str, port: u16, path: &str, timeout: Duration) -> Option<Response> {
+    use std::net::ToSocketAddrs;
+    let addrs = (host, port).to_socket_addrs().ok()?;
+    for addr in addrs.filter(SocketAddr::is_ipv4) {
+        if let Ok(r) = send(addr, host, "GET", path, None, None, timeout) {
+            return r.ok().then_some(r);
+        }
+    }
+    None
+}
+
+fn send(
+    addr: SocketAddr,
+    host: &str,
+    method: &str,
+    path: &str,
+    api_key: Option<&str>,
+    body: Option<&str>,
+    timeout: Duration,
+) -> std::io::Result<Response> {
     let mut s = TcpStream::connect_timeout(&addr, timeout)?;
     s.set_read_timeout(Some(timeout))?;
     s.set_write_timeout(Some(timeout))?;
     let body = body.unwrap_or("");
+    let key = api_key
+        .map(|k| format!("X-API-Key: {k}\r\n"))
+        .unwrap_or_default();
     let head = format!(
-        "{method} {path} HTTP/1.1\r\nHost: {addr}\r\nX-API-Key: {api_key}\r\n\
+        "{method} {path} HTTP/1.1\r\nHost: {host}\r\n{key}User-Agent: slot\r\n\
          Connection: close\r\nAccept: application/json\r\n\
          Content-Type: application/json\r\nContent-Length: {}\r\n\r\n",
         body.len()

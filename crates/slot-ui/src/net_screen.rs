@@ -48,6 +48,9 @@ pub enum NetIntent {
     Forget(String),
     SetSyncthing(bool),
     SetSyncInGame(bool),
+    SetNetworkTime(bool),
+    SetAutoTimezone(bool),
+    SetRetroArchSaves(bool),
 }
 
 #[derive(Copy, Clone, PartialEq, Eq, Debug)]
@@ -58,16 +61,22 @@ pub enum OverviewRow {
     Syncthing,
     SyncInGame,
     Details,
+    NetworkTime,
+    TimeZone,
+    SaveFormat,
 }
 
 impl OverviewRow {
-    pub const ALL: [OverviewRow; 6] = [
+    pub const ALL: [OverviewRow; 9] = [
         OverviewRow::Wifi,
         OverviewRow::Network,
         OverviewRow::Address,
         OverviewRow::Syncthing,
         OverviewRow::SyncInGame,
         OverviewRow::Details,
+        OverviewRow::NetworkTime,
+        OverviewRow::TimeZone,
+        OverviewRow::SaveFormat,
     ];
 
     pub fn label(self) -> &'static str {
@@ -78,13 +87,21 @@ impl OverviewRow {
             OverviewRow::Syncthing => "Syncthing",
             OverviewRow::SyncInGame => "Sync In Games",
             OverviewRow::Details => "Syncthing Details",
+            OverviewRow::NetworkTime => "Network Time",
+            OverviewRow::TimeZone => "Time Zone",
+            OverviewRow::SaveFormat => "Save Format",
         }
     }
 
     fn toggles(self) -> bool {
         matches!(
             self,
-            OverviewRow::Wifi | OverviewRow::Syncthing | OverviewRow::SyncInGame
+            OverviewRow::Wifi
+                | OverviewRow::Syncthing
+                | OverviewRow::SyncInGame
+                | OverviewRow::NetworkTime
+                | OverviewRow::TimeZone
+                | OverviewRow::SaveFormat
         )
     }
 }
@@ -405,6 +422,22 @@ pub fn wifi_text(status: &NetStatus) -> String {
     }
 }
 
+pub fn time_text(status: &NetStatus) -> String {
+    match (status.network_time, status.time_synced) {
+        (false, _) => "Off".into(),
+        (true, true) => "On, synced".into(),
+        (true, false) => "On".into(),
+    }
+}
+
+pub fn zone_text(status: &NetStatus) -> String {
+    match (status.auto_timezone, &status.timezone) {
+        (false, _) => "Manual".into(),
+        (true, Some(z)) => format!("Auto: {}", slot_net::time::city(z)),
+        (true, None) => "Auto: finding…".into(),
+    }
+}
+
 pub fn sync_text(status: &NetStatus) -> String {
     match &status.sync {
         SyncState::Off => "Off".into(),
@@ -462,6 +495,9 @@ impl NetScreen {
             OverviewRow::Wifi => NetIntent::SetWifi(!status.wifi_on),
             OverviewRow::Syncthing => NetIntent::SetSyncthing(!status.syncthing_on),
             OverviewRow::SyncInGame => NetIntent::SetSyncInGame(!status.sync_in_game),
+            OverviewRow::NetworkTime => NetIntent::SetNetworkTime(!status.network_time),
+            OverviewRow::TimeZone => NetIntent::SetAutoTimezone(!status.auto_timezone),
+            OverviewRow::SaveFormat => NetIntent::SetRetroArchSaves(!status.retroarch_saves),
             _ => NetIntent::None,
         };
         match key {
@@ -1012,22 +1048,18 @@ impl NetScreen {
         out: &mut Vec<Draw>,
     ) {
         let rows = OverviewRow::ALL.len() as f32;
-        let top = PLATE_H + (canvas.h - 2.0 * PLATE_H - rows * ROW_PITCH) / 2.0;
+        let pitch = ROW_PITCH
+            .min((canvas.h - 2.0 * PLATE_H - 8.0) / rows)
+            .floor();
+        let top = PLATE_H + (canvas.h - 2.0 * PLATE_H - rows * pitch) / 2.0;
         for (i, row) in OverviewRow::ALL.iter().enumerate() {
-            let y = top + i as f32 * ROW_PITCH;
+            let y = top + i as f32 * pitch;
             let lit = i == self.row;
             if lit {
-                rect(
-                    out,
-                    EDGE / 2.0,
-                    y,
-                    canvas.w - EDGE,
-                    ROW_PITCH - 4.0,
-                    HIGHLIGHT,
-                );
+                rect(out, EDGE / 2.0, y, canvas.w - EDGE, pitch - 4.0, HIGHLIGHT);
             }
             if let Some(t) = faces.get(NetFace::Label(row.label().into(), lit)) {
-                tex(out, t, EDGE, y + (ROW_PITCH - 4.0 - t.2 as f32) / 2.0);
+                tex(out, t, EDGE, y + (pitch - 4.0 - t.2 as f32) / 2.0);
             }
             let value = match row {
                 OverviewRow::Wifi => on_off(status.wifi_on).to_string(),
@@ -1036,13 +1068,19 @@ impl NetScreen {
                 OverviewRow::Syncthing => on_off(status.syncthing_on).to_string(),
                 OverviewRow::SyncInGame => on_off(status.sync_in_game).to_string(),
                 OverviewRow::Details => sync_text(status),
+                OverviewRow::NetworkTime => time_text(status),
+                OverviewRow::TimeZone => zone_text(status),
+                OverviewRow::SaveFormat => match status.retroarch_saves {
+                    true => "RetroArch".to_string(),
+                    false => "slot".to_string(),
+                },
             };
             if let Some(t) = faces.get(NetFace::Value(value, lit)) {
                 tex(
                     out,
                     t,
                     canvas.w - EDGE - t.1 as f32,
-                    y + (ROW_PITCH - 4.0 - t.2 as f32) / 2.0,
+                    y + (pitch - 4.0 - t.2 as f32) / 2.0,
                 );
             }
         }

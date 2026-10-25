@@ -24,6 +24,12 @@ pub const FOLDERS: [(&str, &str, &str); 2] = [
 
 /// slot writes through `.<name>.<pid>.<seq>.tmp` and renames; Syncthing should never send those.
 pub const STIGNORE: &str =
+    "// Written by slot. Temporary files from atomic writes, and slot's own\n\
+// bookkeeping for RetroArch-layout states, which only this device needs.\n\
+(?d).*.tmp\n(?d)*.tmp\n/.slot\n";
+
+/// What slot wrote before; replaced with [`STIGNORE`]. Anything else is the person's own.
+const OLD_STIGNORE: &str =
     "// Written by slot. Temporary files from atomic writes.\n(?d).*.tmp\n(?d)*.tmp\n";
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -320,7 +326,8 @@ impl SyncEngine for Syncthing {
             let path = self.paths.card.join(dir);
             let _ = std::fs::create_dir_all(&path);
             let ignore = path.join(".stignore");
-            if !ignore.exists() {
+            let current = std::fs::read_to_string(&ignore).ok();
+            if current.is_none() || current.as_deref() == Some(OLD_STIGNORE) {
                 let _ = std::fs::write(&ignore, STIGNORE);
             }
             if ids.contains(&id) {

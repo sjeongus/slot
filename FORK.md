@@ -1,10 +1,12 @@
-# slot, with Wi-Fi and Syncthing
+# slot, with Wi-Fi, Syncthing and RetroArch-compatible saves
 
 This is a fork of [BrandonKowalski/slot](https://github.com/BrandonKowalski/slot). It adds a
 **Settings > Network** page. Use it to join Wi-Fi, typing the password with the D-pad, and to keep
 `Saves/` and `States/` in step with your other devices through
-[Syncthing](https://syncthing.net). Everything else is upstream slot, and new upstream releases
-are merged in as they come.
+[Syncthing](https://syncthing.net). GBA saves and states are kept in RetroArch's layout, so they
+work with RetroArch on those devices. The clock sets itself from the network, time zone and
+daylight saving included. Everything else is upstream slot, and new upstream releases are merged
+in as they come.
 
 ## Using it
 
@@ -20,17 +22,61 @@ are merged in as they come.
 4. On your computer, add the handheld as a device in Syncthing using that ID. Then accept the two
    folders it offers:
 
-   | Folder ID     | On the card | What                                                        |
-   |---------------|-------------|-------------------------------------------------------------|
-   | `slot-saves`  | `Saves/`    | battery saves (`.sav`/`.srm`); 5 old versions kept on the card |
-   | `slot-states` | `States/`   | save state rings                                            |
+   | Folder ID     | On the card | Share it with                                      |
+   |---------------|-------------|----------------------------------------------------|
+   | `slot-saves`  | `Saves/`    | RetroArch's saves folder (5 old versions kept on the card) |
+   | `slot-states` | `States/`   | RetroArch's states folder                          |
 
-   Save states only load in the same emulator (mGBA or gpSP) at the same version, so share
-   `slot-states` only with other slot devices.
+   This only works if RetroArch on your other devices sorts saves and states into folders by
+   core. That's RetroArch's default (`sort_savefiles_enable`, `sort_savestates_enable`). The
+   game's ROM must also have the same file name on every device.
 
 5. **Sync In Games** is off by default. While a cart is in, Syncthing pauses both folders, so a
    save from another device can't land under a running game, and the emulator keeps the CPU.
    Ejecting resumes them and rescans.
+
+### Saves and states (RetroArch format)
+
+With **Save Format** set to **RetroArch** (the default), GBA games use RetroArch's mGBA layout:
+
+| What | On the card |
+|---|---|
+| Battery save | `Saves/mGBA/<game>.srm` |
+| Save states | `States/mGBA/<game>.state`, `.state1`, `.state2`, … with a `.png` thumbnail beside each |
+| Resume state | `States/mGBA/<game>.state.auto` |
+
+The states are the mGBA core's own data, the same thing RetroArch stores, so they load in either
+direction. slot reads RetroArch's compressed (rzip, deflate or zstd) and `RASTATE` files, and
+writes plain ones, which every RetroArch version loads.
+
+- **Loading on insert:** with **Load State on Insert** on, slot loads the **newest state by time**.
+  That's `.state.auto` or any numbered slot, from whichever device wrote it last. SELECT+L1
+  does the same.
+- **The state switcher** lists `.state.auto` first, then numbered slots from the highest down
+  (`.state12`, `.state11`, …, `.state`). There is no limit of ten.
+- **Saving a state** writes one slot above the highest, as RetroArch's auto-increment does, so
+  nothing is overwritten.
+- **A state the core refuses** is moved to `States/.slot/`, which isn't synced, and the next start
+  uses the next newest.
+- **Older saves:** slot's own files from before (`Saves/GBA/*.sav`, `States/GBA/…`) are left
+  where they are. A game with no `.srm` yet still loads its old `.sav`, and its first save writes
+  the `.srm`.
+- **gpSP:** if you switch a game to gpSP, its states go to `States/gpSP/`, as RetroArch's would.
+  Its battery save stays in `mGBA/`, so changing cores never hides it.
+- **GB and GBC:** these keep slot's own layout.
+- **Save Format → slot** goes back to slot's own layout for everything.
+
+### Network time
+
+- **Network Time** turns on BaseOS's time service. It sets the clock from `pool.ntp.org` once
+  Wi-Fi is up and keeps it right; the row reads "On, synced" once it has.
+- **Time Zone → Auto** finds your zone (e.g. `America/Los_Angeles`) from your connection the
+  first time you're online. It asks ip-api.com, falling back to worldtimeapi.org; both see your
+  public IP address.
+  - The zone is remembered and checked again daily.
+  - slot follows the zone's rules from BaseOS's time zone database, so daylight saving switches
+    over by itself, even offline.
+- **Time Zone → Manual** uses the offset you set under General → Date & Time, as upstream does.
 
 ### Link play
 
@@ -48,6 +94,10 @@ computer while slot is off:
 wifi=on
 syncthing=on
 sync_in_game=off
+network_time=on
+auto_timezone=on
+timezone=America/Los_Angeles
+save_format=retroarch
 
 [network]
 ssid=Home
@@ -80,10 +130,14 @@ Kept small on purpose, so upstream merges stay easy:
 | `crates/slot-ui/src/net_screen.rs` | **New.** The Network pages and keyboard. |
 | `crates/slot/src/app/net.rs` | **New.** The Network phase inside the App. |
 | `crates/slot/tests/network.rs`, `crates/slot-ui/tests/net_screen.rs` | **New.** Tests. |
-| `crates/slot/src/app.rs` | ~16 lines: a `Network` phase, routing to `app/net.rs`, `shutdown_net()` before power off, restart and repair. |
+| `crates/slot/src/app.rs` | ~25 lines: a `Network` phase, routing to `app/net.rs`, `shutdown_net()` before power off, restart and repair; load-newest by time, decoded state reads, no eviction undo for RetroArch slots. |
 | `crates/slot/src/frontend.rs` | `start_network`, `stop_network`, building text faces for the screen. |
 | `crates/slot/src/link_radio.rs` | 3 lines: hold home Wi-Fi before a link, release after. |
 | `crates/slot-ui/src/quick_menu.rs` | A `Network` row above About. |
+| `crates/slot-store/src/retroarch.rs` | **New.** The RetroArch layout, and reading RetroArch's rzip/`RASTATE` files. |
+| `crates/slot-store/src/lib.rs` | Exports `StateRing` from `retroarch.rs`, which wraps upstream's ring. |
+| `crates/slot/src/persist.rs` | GBA battery saves go to `Saves/mGBA/<game>.srm` under the RetroArch layout. |
+| `crates/slot-net/src/time.rs` | **New.** Time zone lookup, daylight-saving offsets from the zone database, BaseOS's NTP switch. |
 | `crates/slot/src/device_app.rs`, `host_app.rs` | Start the network at boot. |
 | `taskfile.yml`, `.github/workflows/release.yml` | Fetch, check and ship Syncthing. |
 

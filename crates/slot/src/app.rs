@@ -35,6 +35,7 @@ use slot_store::{
 };
 
 mod net;
+pub use net::set_save_layout;
 
 pub const RECORDING: &str = "Recording";
 pub const CLASH_MARK: &str = "!";
@@ -5676,7 +5677,10 @@ impl App {
     }
 
     fn load_newest(&mut self) {
-        let Some(newest) = self.entries().first().map(|e| e.state.clone()) else {
+        // Newest by time: the RetroArch layout lists .state.auto first, not newest first.
+        let entries = self.entries();
+        let newest = entries.iter().max_by(|a, b| a.stamp.cmp(&b.stamp));
+        let Some(newest) = newest.map(|e| e.state.clone()) else {
             return self.refuse();
         };
         self.load_file(&newest);
@@ -5690,7 +5694,8 @@ impl App {
         let Some(snapshot) = &self.snapshot else {
             return false;
         };
-        let bytes = match std::fs::read(state) {
+        // States RetroArch wrote may be compressed or wrapped; slot's own come back as is.
+        let bytes = match slot_store::read_decoded(state) {
             Ok(bytes) => bytes,
             Err(e) => {
                 eprintln!("slot: load: {e}");
@@ -6052,6 +6057,10 @@ fn system_secs() -> i64 {
 }
 
 fn doomed(ring: &StateRing) -> Option<(String, Vec<u8>, Vec<u8>)> {
+    // RetroArch's numbered slots only grow, so a save there never pushes one out.
+    if matches!(ring, StateRing::RetroArch(_)) {
+        return None;
+    }
     let entries = ring.list().ok()?;
     let oldest = entries.get(RING_MAX - 1)?;
     let (state, thumb) = ring.read(&oldest.stamp).ok()?;

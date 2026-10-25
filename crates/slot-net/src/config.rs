@@ -34,6 +34,14 @@ pub struct NetConfig {
     pub syncthing: bool,
     /// Let Syncthing touch Saves and States while a game is running.
     pub sync_in_game: bool,
+    /// Keep the clock right with BaseOS's NTP service.
+    pub network_time: bool,
+    /// Find the time zone from the network, and follow its daylight saving.
+    pub auto_timezone: bool,
+    /// The IANA zone last found, kept so the clock stays right offline.
+    pub timezone: String,
+    /// Keep GBA saves and states in RetroArch's layout, so they sync with RetroArch.
+    pub retroarch_saves: bool,
     /// Most recently joined first; the supplicant prefers them in this order.
     pub networks: Vec<Network>,
     /// Chosen once, so the web UI password and the API key survive restarts.
@@ -48,6 +56,10 @@ impl Default for NetConfig {
             wifi: true,
             syncthing: false,
             sync_in_game: false,
+            network_time: true,
+            auto_timezone: true,
+            timezone: String::new(),
+            retroarch_saves: true,
             networks: Vec::new(),
             syncthing_api_key: String::new(),
             syncthing_password: String::new(),
@@ -133,6 +145,19 @@ impl NetConfig {
                 "wifi" => c.wifi = flag(v).unwrap_or(c.wifi),
                 "syncthing" => c.syncthing = flag(v).unwrap_or(c.syncthing),
                 "sync_in_game" => c.sync_in_game = flag(v).unwrap_or(c.sync_in_game),
+                "network_time" => c.network_time = flag(v).unwrap_or(c.network_time),
+                "auto_timezone" => c.auto_timezone = flag(v).unwrap_or(c.auto_timezone),
+                "timezone" => {
+                    let z = v.trim();
+                    if crate::time::valid_zone(z) {
+                        c.timezone = z.to_string();
+                    }
+                }
+                "save_format" => match v.trim().to_ascii_lowercase().as_str() {
+                    "retroarch" => c.retroarch_saves = true,
+                    "slot" => c.retroarch_saves = false,
+                    _ => {}
+                },
                 "syncthing_api_key" => c.syncthing_api_key = v.trim().to_string(),
                 "syncthing_password" => c.syncthing_password = v.trim().to_string(),
                 _ => c.extra.push((k.trim().to_string(), v.to_string())),
@@ -152,6 +177,19 @@ impl NetConfig {
         s += &format!("wifi={}\n", on_off(self.wifi));
         s += &format!("syncthing={}\n", on_off(self.syncthing));
         s += &format!("sync_in_game={}\n", on_off(self.sync_in_game));
+        s += &format!("network_time={}\n", on_off(self.network_time));
+        s += &format!("auto_timezone={}\n", on_off(self.auto_timezone));
+        if !self.timezone.is_empty() {
+            s += &format!("timezone={}\n", self.timezone);
+        }
+        s += &format!(
+            "save_format={}\n",
+            if self.retroarch_saves {
+                "retroarch"
+            } else {
+                "slot"
+            }
+        );
         if !self.syncthing_api_key.is_empty() {
             s += &format!("syncthing_api_key={}\n", self.syncthing_api_key);
         }
@@ -267,6 +305,19 @@ mod tests {
         assert!(c.forget("b"));
         assert!(!c.forget("b"));
         assert_eq!(c.networks.len(), 2);
+    }
+
+    #[test]
+    fn time_and_save_settings_round_trip_and_default_on() {
+        let d = NetConfig::default();
+        assert!(d.network_time && d.auto_timezone && d.retroarch_saves);
+        let c = NetConfig::parse(
+            "network_time=off\nauto_timezone=off\ntimezone=America/Los_Angeles\nsave_format=slot\n",
+        );
+        assert!(!c.network_time && !c.auto_timezone && !c.retroarch_saves);
+        assert_eq!(c.timezone, "America/Los_Angeles");
+        assert_eq!(NetConfig::parse(&c.render()), c);
+        assert_eq!(NetConfig::parse("timezone=../../etc/passwd\n").timezone, "");
     }
 
     #[test]

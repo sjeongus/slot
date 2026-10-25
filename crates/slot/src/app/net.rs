@@ -141,10 +141,6 @@ impl App {
                 net.set_auto_timezone(on);
                 self.net.zone_at = None;
             }
-            NetIntent::SetRetroArchSaves(on) => {
-                net.set_retroarch_saves(on);
-                set_save_layout(on);
-            }
         }
     }
 
@@ -219,6 +215,29 @@ impl App {
             eprintln!("slot: clock: {zone} is UTC{minutes:+} min now");
             self.state.utc_offset_min = minutes;
             self.persist();
+        }
+    }
+
+    pub(super) fn save_format_value(&self) -> slot_ui::QuickValue {
+        match slot_store::layout() {
+            slot_store::Layout::RetroArch => slot_ui::QuickValue::RetroArch,
+            slot_store::Layout::Slot => slot_ui::QuickValue::SlotFormat,
+        }
+    }
+
+    /// Settings > Gameplay > Save Format. Kept in Config/net.txt with the other fork settings:
+    /// through the network thread when there is one, which owns that file, or directly.
+    pub(super) fn toggle_save_format(&mut self) {
+        let on = slot_store::layout() != slot_store::Layout::RetroArch;
+        set_save_layout(on);
+        if let Some(net) = &self.net.net {
+            net.set_retroarch_saves(on);
+        } else if let Some(root) = self.root() {
+            let mut config = slot_net::NetConfig::load(root);
+            config.retroarch_saves = on;
+            if let Err(e) = config.save(root) {
+                eprintln!("slot: net.txt: {e}");
+            }
         }
     }
 

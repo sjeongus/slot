@@ -2,7 +2,7 @@ use slot_gfx::{Canvas, Draw, TexId};
 use slot_net::{NetStatus, ScanResult, SyncState, WifiState};
 use slot_ui::{
     net_entries, net_face, qr_face, NetCap, NetFace, NetFaces, NetIntent, NetKey, NetKeyboard,
-    NetLayer, NetPage, NetScreen, OverviewRow, UndoFace, OTHER_NETWORK,
+    NetLayer, NetPage, NetScreen, OverviewRow, SyncRow, UndoFace, OTHER_NETWORK,
 };
 
 fn scan(ssid: &str, dbm: i32, secured: bool) -> ScanResult {
@@ -73,19 +73,9 @@ fn overview_toggles_ask_for_the_opposite_state() {
     assert_eq!(n.overview_row(), OverviewRow::Wifi);
     assert_eq!(n.input(NetKey::A, &s), NetIntent::SetWifi(false));
     assert_eq!(n.input(NetKey::Right, &s), NetIntent::SetWifi(false));
-    for _ in 0..3 {
+    for _ in 0..4 {
         n.input(NetKey::Down, &s);
     }
-    assert_eq!(n.overview_row(), OverviewRow::Syncthing);
-    assert_eq!(n.input(NetKey::A, &s), NetIntent::SetSyncthing(false));
-    n.input(NetKey::Down, &s);
-    assert_eq!(n.input(NetKey::Left, &s), NetIntent::SetSyncInGame(true));
-    n.input(NetKey::Down, &s);
-    n.input(NetKey::A, &s);
-    assert_eq!(n.page, NetPage::Sync);
-    n.input(NetKey::B, &s);
-    assert_eq!(n.page, NetPage::Overview);
-    n.input(NetKey::Down, &s);
     assert_eq!(n.overview_row(), OverviewRow::NetworkTime);
     assert_eq!(n.input(NetKey::A, &s), NetIntent::SetNetworkTime(false));
     n.input(NetKey::Down, &s);
@@ -94,10 +84,67 @@ fn overview_toggles_ask_for_the_opposite_state() {
         NetIntent::SetAutoTimezone(false)
     );
     n.input(NetKey::Down, &s);
-    assert_eq!(n.input(NetKey::A, &s), NetIntent::SetRetroArchSaves(false));
-    n.input(NetKey::Down, &s);
     assert_eq!(n.overview_row(), OverviewRow::Wifi, "the list wraps");
     assert_eq!(n.input(NetKey::B, &s), NetIntent::Close);
+}
+
+#[test]
+fn syncthing_has_a_page_of_its_own() {
+    let s = status();
+    let mut n = NetScreen::new();
+    for _ in 0..3 {
+        n.input(NetKey::Down, &s);
+    }
+    assert_eq!(n.overview_row(), OverviewRow::Syncthing);
+    assert_eq!(
+        n.input(NetKey::Right, &s),
+        NetIntent::None,
+        "it opens, not toggles"
+    );
+    assert_eq!(n.input(NetKey::A, &s), NetIntent::None);
+    assert_eq!(n.page, NetPage::Syncthing);
+    assert_eq!(n.title(), "Syncthing");
+    assert_eq!(n.sync_row(), SyncRow::Syncthing);
+    assert_eq!(n.input(NetKey::A, &s), NetIntent::SetSyncthing(false));
+    n.input(NetKey::Down, &s);
+    assert_eq!(n.input(NetKey::Left, &s), NetIntent::SetSyncInGame(true));
+    n.input(NetKey::Down, &s);
+    assert_eq!(n.sync_row(), SyncRow::Details);
+    n.input(NetKey::A, &s);
+    assert_eq!(n.page, NetPage::Sync);
+    n.input(NetKey::B, &s);
+    assert_eq!(
+        n.page,
+        NetPage::Syncthing,
+        "back from the details is the Syncthing page"
+    );
+    n.input(NetKey::B, &s);
+    assert_eq!(n.page, NetPage::Overview);
+    assert_eq!(
+        n.overview_row(),
+        OverviewRow::Syncthing,
+        "and back again lands on its row"
+    );
+}
+
+#[test]
+fn switches_read_in_capitals_and_names_keep_their_case() {
+    let mut s = status();
+    assert_eq!(slot_ui::time_text(&s), "ON, synced");
+    s.time_synced = false;
+    assert_eq!(slot_ui::time_text(&s), "ON");
+    s.network_time = false;
+    assert_eq!(slot_ui::time_text(&s), "OFF");
+    s.wifi_on = false;
+    s.wifi = slot_net::WifiState::Off;
+    assert_eq!(slot_ui::wifi_text(&s), "OFF");
+    s.wifi = slot_net::WifiState::Connected {
+        ssid: "Home Wi-Fi".into(),
+        ip: Some("192.168.1.20".into()),
+    };
+    assert_eq!(slot_ui::wifi_text(&s), "Home Wi-Fi");
+    s.sync = slot_net::SyncState::Off;
+    assert_eq!(slot_ui::sync_text(&s), "OFF");
 }
 
 #[test]
@@ -443,9 +490,13 @@ fn every_page_draws_on_both_screen_widths() {
         n.input(NetKey::Select, &s);
         shoot(&format!("{tag}-symbols"), canvas, &n, &s);
         let mut n = NetScreen::new();
-        for _ in 0..5 {
+        for _ in 0..3 {
             n.input(NetKey::Down, &s);
         }
+        n.input(NetKey::A, &s);
+        shoot(&format!("{tag}-syncthing"), canvas, &n, &s);
+        n.input(NetKey::Down, &s);
+        n.input(NetKey::Down, &s);
         n.input(NetKey::A, &s);
         let px = shoot(&format!("{tag}-sync"), canvas, &n, &s);
         let white = px

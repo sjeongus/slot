@@ -1,5 +1,5 @@
 //! Settings > Network: Wi-Fi on and off, choosing a network, typing its password with the
-//! D-pad, and Syncthing.
+//! D-pad, network time, and a Syncthing page of its own.
 //!
 //! The screen is plain state. slot hands it buttons and the latest [`NetStatus`]; it answers
 //! with a [`NetIntent`] for slot to pass on to the network thread, and draws itself from text
@@ -50,7 +50,6 @@ pub enum NetIntent {
     SetSyncInGame(bool),
     SetNetworkTime(bool),
     SetAutoTimezone(bool),
-    SetRetroArchSaves(bool),
 }
 
 #[derive(Copy, Clone, PartialEq, Eq, Debug)]
@@ -58,25 +57,20 @@ pub enum OverviewRow {
     Wifi,
     Network,
     Address,
+    /// Opens the Syncthing page. Services added later (Tailscale) get a row like it.
     Syncthing,
-    SyncInGame,
-    Details,
     NetworkTime,
     TimeZone,
-    SaveFormat,
 }
 
 impl OverviewRow {
-    pub const ALL: [OverviewRow; 9] = [
+    pub const ALL: [OverviewRow; 6] = [
         OverviewRow::Wifi,
         OverviewRow::Network,
         OverviewRow::Address,
         OverviewRow::Syncthing,
-        OverviewRow::SyncInGame,
-        OverviewRow::Details,
         OverviewRow::NetworkTime,
         OverviewRow::TimeZone,
-        OverviewRow::SaveFormat,
     ];
 
     pub fn label(self) -> &'static str {
@@ -85,24 +79,64 @@ impl OverviewRow {
             OverviewRow::Network => "Network",
             OverviewRow::Address => "IP Address",
             OverviewRow::Syncthing => "Syncthing",
-            OverviewRow::SyncInGame => "Sync In Games",
-            OverviewRow::Details => "Syncthing Details",
             OverviewRow::NetworkTime => "Network Time",
             OverviewRow::TimeZone => "Time Zone",
-            OverviewRow::SaveFormat => "Save Format",
         }
     }
 
     fn toggles(self) -> bool {
         matches!(
             self,
-            OverviewRow::Wifi
-                | OverviewRow::Syncthing
-                | OverviewRow::SyncInGame
-                | OverviewRow::NetworkTime
-                | OverviewRow::TimeZone
-                | OverviewRow::SaveFormat
+            OverviewRow::Wifi | OverviewRow::NetworkTime | OverviewRow::TimeZone
         )
+    }
+
+    fn opens(self) -> bool {
+        matches!(self, OverviewRow::Network | OverviewRow::Syncthing)
+    }
+
+    fn value(self, status: &NetStatus) -> String {
+        match self {
+            OverviewRow::Wifi => on_off(status.wifi_on).to_string(),
+            OverviewRow::Network => wifi_text(status),
+            OverviewRow::Address => status.ip().unwrap_or("—").to_string(),
+            OverviewRow::Syncthing => sync_text(status),
+            OverviewRow::NetworkTime => time_text(status),
+            OverviewRow::TimeZone => zone_text(status),
+        }
+    }
+}
+
+/// The rows of the Syncthing page.
+#[derive(Copy, Clone, PartialEq, Eq, Debug)]
+pub enum SyncRow {
+    Syncthing,
+    SyncInGame,
+    /// Opens the device ID, QR code and web interface login.
+    Details,
+}
+
+impl SyncRow {
+    pub const ALL: [SyncRow; 3] = [SyncRow::Syncthing, SyncRow::SyncInGame, SyncRow::Details];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            SyncRow::Syncthing => "Syncthing",
+            SyncRow::SyncInGame => "Sync In Games",
+            SyncRow::Details => "Details",
+        }
+    }
+
+    fn toggles(self) -> bool {
+        matches!(self, SyncRow::Syncthing | SyncRow::SyncInGame)
+    }
+
+    fn value(self, status: &NetStatus) -> String {
+        match self {
+            SyncRow::Syncthing => on_off(status.syncthing_on).to_string(),
+            SyncRow::SyncInGame => on_off(status.sync_in_game).to_string(),
+            SyncRow::Details => sync_text(status),
+        }
     }
 }
 
@@ -121,6 +155,9 @@ pub enum NetPage {
     Overview,
     Networks,
     Keyboard(KeyTarget),
+    /// Syncthing's own settings.
+    Syncthing,
+    /// Syncthing's device ID, QR code and web interface.
     Sync,
 }
 
@@ -391,6 +428,8 @@ impl Default for Keyboard {
 pub struct NetScreen {
     pub page: NetPage,
     pub row: usize,
+    /// The highlighted row on the Syncthing page.
+    pub sync_row: usize,
     pub pick: usize,
     pub keyboard: Keyboard,
 }
@@ -401,17 +440,18 @@ impl Default for NetScreen {
     }
 }
 
+/// Switches read in capitals, as on slot's other menus; names and addresses keep their case.
 fn on_off(on: bool) -> &'static str {
     if on {
-        "On"
+        "ON"
     } else {
-        "Off"
+        "OFF"
     }
 }
 
 pub fn wifi_text(status: &NetStatus) -> String {
     match &status.wifi {
-        WifiState::Off => "Off".into(),
+        WifiState::Off => "OFF".into(),
         WifiState::Linking => "In use by link".into(),
         WifiState::NoNetworks => "Choose a network".into(),
         WifiState::Searching => "Searching…".into(),
@@ -424,9 +464,9 @@ pub fn wifi_text(status: &NetStatus) -> String {
 
 pub fn time_text(status: &NetStatus) -> String {
     match (status.network_time, status.time_synced) {
-        (false, _) => "Off".into(),
-        (true, true) => "On, synced".into(),
-        (true, false) => "On".into(),
+        (false, _) => "OFF".into(),
+        (true, true) => "ON, synced".into(),
+        (true, false) => "ON".into(),
     }
 }
 
@@ -440,7 +480,7 @@ pub fn zone_text(status: &NetStatus) -> String {
 
 pub fn sync_text(status: &NetStatus) -> String {
     match &status.sync {
-        SyncState::Off => "Off".into(),
+        SyncState::Off => "OFF".into(),
         SyncState::Missing => "Not on this card".into(),
         SyncState::WaitingForWifi => "Waiting for Wi-Fi".into(),
         SyncState::Starting => "Starting…".into(),
@@ -458,6 +498,7 @@ impl NetScreen {
         NetScreen {
             page: NetPage::Overview,
             row: 0,
+            sync_row: 0,
             pick: 0,
             keyboard: Keyboard::new(),
         }
@@ -467,18 +508,54 @@ impl NetScreen {
         OverviewRow::ALL[self.row.min(OverviewRow::ALL.len() - 1)]
     }
 
+    pub fn sync_row(&self) -> SyncRow {
+        SyncRow::ALL[self.sync_row.min(SyncRow::ALL.len() - 1)]
+    }
+
     pub fn input(&mut self, key: NetKey, status: &NetStatus) -> NetIntent {
         match self.page.clone() {
             NetPage::Overview => self.overview_input(key, status),
             NetPage::Networks => self.networks_input(key, status),
             NetPage::Keyboard(target) => self.keyboard_input(key, target),
+            NetPage::Syncthing => self.syncthing_input(key, status),
             NetPage::Sync => match key {
                 NetKey::B | NetKey::Menu => {
-                    self.page = NetPage::Overview;
+                    self.page = NetPage::Syncthing;
                     NetIntent::None
                 }
                 _ => NetIntent::None,
             },
+        }
+    }
+
+    fn syncthing_input(&mut self, key: NetKey, status: &NetStatus) -> NetIntent {
+        let n = SyncRow::ALL.len();
+        let row = self.sync_row();
+        let toggle = |row: SyncRow| match row {
+            SyncRow::Syncthing => NetIntent::SetSyncthing(!status.syncthing_on),
+            SyncRow::SyncInGame => NetIntent::SetSyncInGame(!status.sync_in_game),
+            SyncRow::Details => NetIntent::None,
+        };
+        match key {
+            NetKey::Up => {
+                self.sync_row = (self.sync_row + n - 1) % n;
+                NetIntent::None
+            }
+            NetKey::Down => {
+                self.sync_row = (self.sync_row + 1) % n;
+                NetIntent::None
+            }
+            NetKey::Left | NetKey::Right if row.toggles() => toggle(row),
+            NetKey::A if row.toggles() => toggle(row),
+            NetKey::A => {
+                self.page = NetPage::Sync;
+                NetIntent::None
+            }
+            NetKey::B | NetKey::Menu => {
+                self.page = NetPage::Overview;
+                NetIntent::None
+            }
+            _ => NetIntent::None,
         }
     }
 
@@ -493,11 +570,8 @@ impl NetScreen {
         let row = self.overview_row();
         let toggle = |row: OverviewRow| match row {
             OverviewRow::Wifi => NetIntent::SetWifi(!status.wifi_on),
-            OverviewRow::Syncthing => NetIntent::SetSyncthing(!status.syncthing_on),
-            OverviewRow::SyncInGame => NetIntent::SetSyncInGame(!status.sync_in_game),
             OverviewRow::NetworkTime => NetIntent::SetNetworkTime(!status.network_time),
             OverviewRow::TimeZone => NetIntent::SetAutoTimezone(!status.auto_timezone),
-            OverviewRow::SaveFormat => NetIntent::SetRetroArchSaves(!status.retroarch_saves),
             _ => NetIntent::None,
         };
         match key {
@@ -519,8 +593,9 @@ impl NetScreen {
                     self.pick = 0;
                     NetIntent::SetWifi(true)
                 }
-                OverviewRow::Details => {
-                    self.page = NetPage::Sync;
+                OverviewRow::Syncthing => {
+                    self.page = NetPage::Syncthing;
+                    self.sync_row = 0;
                     NetIntent::None
                 }
                 _ => NetIntent::None,
@@ -688,7 +763,8 @@ impl NetScreen {
             NetPage::Networks => "Wi-Fi Networks",
             NetPage::Keyboard(KeyTarget::HiddenName) => "Network Name",
             NetPage::Keyboard(_) => "Password",
-            NetPage::Sync => "Syncthing",
+            NetPage::Syncthing => "Syncthing",
+            NetPage::Sync => "Syncthing Details",
         }
     }
 
@@ -702,7 +778,7 @@ impl NetScreen {
                 let row = self.overview_row();
                 let a = match row {
                     r if r.toggles() => Some("Toggle"),
-                    OverviewRow::Network | OverviewRow::Details => Some("Open"),
+                    r if r.opens() => Some("Open"),
                     _ => None,
                 };
                 let mut v = vec![h("B", "Back")];
@@ -731,6 +807,13 @@ impl NetScreen {
                 ],
                 1,
             ),
+            NetPage::Syncthing => {
+                let a = match self.sync_row().toggles() {
+                    true => "Toggle",
+                    false => "Open",
+                };
+                (vec![h("B", "Back"), h("A", a)], 1)
+            }
             NetPage::Sync => (vec![h("B", "Back")], 1),
         }
     }
@@ -1033,56 +1116,23 @@ impl NetScreen {
     /// [`draw_net_chrome`].
     pub fn draw(&self, canvas: Canvas, status: &NetStatus, faces: &NetFaces, out: &mut Vec<Draw>) {
         match &self.page {
-            NetPage::Overview => self.draw_overview(canvas, status, faces, out),
+            NetPage::Overview => {
+                let rows: Vec<(&str, String)> = OverviewRow::ALL
+                    .iter()
+                    .map(|r| (r.label(), r.value(status)))
+                    .collect();
+                draw_rows(canvas, &rows, self.row, faces, out);
+            }
+            NetPage::Syncthing => {
+                let rows: Vec<(&str, String)> = SyncRow::ALL
+                    .iter()
+                    .map(|r| (r.label(), r.value(status)))
+                    .collect();
+                draw_rows(canvas, &rows, self.sync_row, faces, out);
+            }
             NetPage::Networks => self.draw_networks(canvas, status, faces, out),
             NetPage::Keyboard(target) => self.draw_keyboard(canvas, target, faces, out),
             NetPage::Sync => draw_sync(canvas, status, faces, out),
-        }
-    }
-
-    fn draw_overview(
-        &self,
-        canvas: Canvas,
-        status: &NetStatus,
-        faces: &NetFaces,
-        out: &mut Vec<Draw>,
-    ) {
-        let rows = OverviewRow::ALL.len() as f32;
-        let pitch = ROW_PITCH
-            .min((canvas.h - 2.0 * PLATE_H - 8.0) / rows)
-            .floor();
-        let top = PLATE_H + (canvas.h - 2.0 * PLATE_H - rows * pitch) / 2.0;
-        for (i, row) in OverviewRow::ALL.iter().enumerate() {
-            let y = top + i as f32 * pitch;
-            let lit = i == self.row;
-            if lit {
-                rect(out, EDGE / 2.0, y, canvas.w - EDGE, pitch - 4.0, HIGHLIGHT);
-            }
-            if let Some(t) = faces.get(NetFace::Label(row.label().into(), lit)) {
-                tex(out, t, EDGE, y + (pitch - 4.0 - t.2 as f32) / 2.0);
-            }
-            let value = match row {
-                OverviewRow::Wifi => on_off(status.wifi_on).to_string(),
-                OverviewRow::Network => wifi_text(status),
-                OverviewRow::Address => status.ip().unwrap_or("—").to_string(),
-                OverviewRow::Syncthing => on_off(status.syncthing_on).to_string(),
-                OverviewRow::SyncInGame => on_off(status.sync_in_game).to_string(),
-                OverviewRow::Details => sync_text(status),
-                OverviewRow::NetworkTime => time_text(status),
-                OverviewRow::TimeZone => zone_text(status),
-                OverviewRow::SaveFormat => match status.retroarch_saves {
-                    true => "RetroArch".to_string(),
-                    false => "slot".to_string(),
-                },
-            };
-            if let Some(t) = faces.get(NetFace::Value(value, lit)) {
-                tex(
-                    out,
-                    t,
-                    canvas.w - EDGE - t.1 as f32,
-                    y + (pitch - 4.0 - t.2 as f32) / 2.0,
-                );
-            }
         }
     }
 
@@ -1265,6 +1315,38 @@ impl NetScreen {
             .collect::<Option<Vec<_>>>()
             .unwrap_or_default();
         (hints, texes, ways_out)
+    }
+}
+
+/// A page of labelled rows with their values on the right, centred in the space between the
+/// title and hint plates.
+fn draw_rows(
+    canvas: Canvas,
+    rows: &[(&str, String)],
+    lit_row: usize,
+    faces: &NetFaces,
+    out: &mut Vec<Draw>,
+) {
+    let n = rows.len() as f32;
+    let pitch = ROW_PITCH.min((canvas.h - 2.0 * PLATE_H - 8.0) / n).floor();
+    let top = PLATE_H + (canvas.h - 2.0 * PLATE_H - n * pitch) / 2.0;
+    for (i, (label, value)) in rows.iter().enumerate() {
+        let y = top + i as f32 * pitch;
+        let lit = i == lit_row;
+        if lit {
+            rect(out, EDGE / 2.0, y, canvas.w - EDGE, pitch - 4.0, HIGHLIGHT);
+        }
+        if let Some(t) = faces.get(NetFace::Label((*label).into(), lit)) {
+            tex(out, t, EDGE, y + (pitch - 4.0 - t.2 as f32) / 2.0);
+        }
+        if let Some(t) = faces.get(NetFace::Value(value.clone(), lit)) {
+            tex(
+                out,
+                t,
+                canvas.w - EDGE - t.1 as f32,
+                y + (pitch - 4.0 - t.2 as f32) / 2.0,
+            );
+        }
     }
 }
 

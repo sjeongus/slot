@@ -16,7 +16,8 @@ in as they come.
      joins.
    - Saved networks are joined automatically every time the device is on.
    - **Other Network…** at the bottom of the list joins a hidden network.
-3. **Syncthing**: turn it on. Once the device is on Wi-Fi, **Syncthing Details** shows:
+3. **Syncthing** opens its own page. Turn **Syncthing** on there. Once the device is on Wi-Fi,
+   **Details** shows:
    - this device's ID, as text and as a QR code you can scan from the Syncthing app on a phone;
    - the address, user and password of the Syncthing web interface.
 4. On your computer, add the handheld as a device in Syncthing using that ID. Then accept the two
@@ -31,13 +32,15 @@ in as they come.
    core. That's RetroArch's default (`sort_savefiles_enable`, `sort_savestates_enable`). The
    game's ROM must also have the same file name on every device.
 
-5. **Sync In Games** is off by default. While a cart is in, Syncthing pauses both folders, so a
+5. **Sync In Games**, also on the Syncthing page, is off by default. While a cart is in, Syncthing pauses both folders, so a
    save from another device can't land under a running game, and the emulator keeps the CPU.
    Ejecting resumes them and rescans.
 
 ### Saves and states (RetroArch format)
 
-With **Save Format** set to **RetroArch** (the default), GBA games use RetroArch's mGBA layout:
+With **Settings > Gameplay > Save Format** set to **RetroArch** (the default), GBA games use
+RetroArch's mGBA layout. The row is only on the shelf's menu, not the in-game one, so the layout
+can't change under a running game.
 
 | What | On the card |
 |---|---|
@@ -87,8 +90,8 @@ On models whose BaseOS build has no Wi-Fi (the RG28XX), the Network row is hidde
 
 ### Settings file
 
-Everything on the Network page is stored in `Config/net.txt`, which you can also edit on a
-computer while slot is off:
+Everything on the Network page, and Save Format, is stored in `Config/net.txt`, which you can
+also edit on a computer while slot is off:
 
 ```
 wifi=on
@@ -130,10 +133,10 @@ Kept small on purpose, so upstream merges stay easy:
 | `crates/slot-ui/src/net_screen.rs` | **New.** The Network pages and keyboard. |
 | `crates/slot/src/app/net.rs` | **New.** The Network phase inside the App. |
 | `crates/slot/tests/network.rs`, `crates/slot-ui/tests/net_screen.rs` | **New.** Tests. |
-| `crates/slot/src/app.rs` | ~25 lines: a `Network` phase, routing to `app/net.rs`, `shutdown_net()` before power off, restart and repair; load-newest by time, decoded state reads, no eviction undo for RetroArch slots. |
+| `crates/slot/src/app.rs` | ~25 lines: a `Network` phase, routing to `app/net.rs`, `shutdown_net()` before power off, restart and repair; load-newest by time, decoded state reads, no eviction undo for RetroArch slots; the Save Format row, hidden in game. |
 | `crates/slot/src/frontend.rs` | `start_network`, `stop_network`, building text faces for the screen. |
 | `crates/slot/src/link_radio.rs` | 3 lines: hold home Wi-Fi before a link, release after. |
-| `crates/slot-ui/src/quick_menu.rs` | A `Network` row above About. |
+| `crates/slot-ui/src/quick_menu.rs` | A `Network` row above About; `Save Format` at the end of Gameplay, with its two values. |
 | `crates/slot-store/src/retroarch.rs` | **New.** The RetroArch layout, and reading RetroArch's rzip/`RASTATE` files. |
 | `crates/slot-store/src/lib.rs` | Exports `StateRing` from `retroarch.rs`, which wraps upstream's ring. |
 | `crates/slot/src/persist.rs` | GBA battery saves go to `Saves/mGBA/<game>.srm` under the RetroArch layout. |
@@ -152,9 +155,10 @@ task test && task test:card
 
 Conflicts, when they happen, are almost always in the lines listed above:
 
-- **`QuickRow`**: keep `Network` as the last variant of the enum and of `ALL`, and bump `ALL`'s
-  length.
-- **`app.rs`**: keep the `| QuickRow::Network` arms next to `QuickRow::About`.
+- **`QuickRow`**: keep `Network` and `SaveFormat` as the last variants of the enum and of `ALL`,
+  and bump `ALL`'s length. The same for `QuickValue::RetroArch` and `SlotFormat`.
+- **`app.rs`**: keep the `| QuickRow::Network` arms next to `QuickRow::About`, and the
+  `| QuickRow::SaveFormat` arms in the same matches.
 
 ## Building
 

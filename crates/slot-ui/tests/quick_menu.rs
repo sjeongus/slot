@@ -132,7 +132,8 @@ fn the_rows_run_in_the_order_the_user_chose() {
             "Rumble",
             "Left Stick as D-Pad",
             "Load State on Insert",
-            "Save State on Eject"
+            "Save State on Eject",
+            "Save Format"
         ]
     );
     let opens: Vec<QuickRow> = QuickRow::ALL.into_iter().filter(|r| r.opens()).collect();
@@ -238,6 +239,8 @@ fn the_values_read_as_the_menu_prints_them() {
             "7",
             "8",
             "9",
+            "RetroArch",
+            "slot",
         ]
     );
     assert_eq!(QuickValue::flag(true), QuickValue::On);

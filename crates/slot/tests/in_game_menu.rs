@@ -95,6 +95,7 @@ fn screen_shows_the_palette_only_when_palettes_are_live() {
         QuickRow::Screenshots,
         QuickRow::UndoSave,
         QuickRow::UndoLoad,
+        QuickRow::SaveFormat,
     ];
     assert_eq!(
         a.in_game_hidden(),

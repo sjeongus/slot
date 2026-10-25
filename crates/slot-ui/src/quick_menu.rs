@@ -96,10 +96,11 @@ pub enum QuickRow {
     UndoSave,
     UndoLoad,
     Network,
+    SaveFormat,
 }
 
 impl QuickRow {
-    pub const ALL: [QuickRow; 85] = [
+    pub const ALL: [QuickRow; 86] = [
         QuickRow::FastForward,
         QuickRow::FastForwardSound,
         QuickRow::Screen,
@@ -185,6 +186,7 @@ impl QuickRow {
         QuickRow::UndoSave,
         QuickRow::UndoLoad,
         QuickRow::Network,
+        QuickRow::SaveFormat,
     ];
 
     pub const MAIN: [QuickRow; 6] = [
@@ -278,7 +280,7 @@ impl QuickRow {
         QuickRow::GbBezel,
     ];
 
-    pub const GAME: [QuickRow; 8] = [
+    pub const GAME: [QuickRow; 9] = [
         QuickRow::FastForward,
         QuickRow::FastForwardSound,
         QuickRow::Rewind,
@@ -287,6 +289,7 @@ impl QuickRow {
         QuickRow::LeftStick,
         QuickRow::AutoLoad,
         QuickRow::EjectSave,
+        QuickRow::SaveFormat,
     ];
 
     pub const PLAY: [QuickRow; 7] = [
@@ -343,7 +346,8 @@ impl QuickRow {
             | QuickRow::Rumble
             | QuickRow::LeftStick
             | QuickRow::AutoLoad
-            | QuickRow::EjectSave => &QuickRow::GAME,
+            | QuickRow::EjectSave
+            | QuickRow::SaveFormat => &QuickRow::GAME,
             QuickRow::Wallpaper
             | QuickRow::WallpaperTint
             | QuickRow::DateTime
@@ -461,6 +465,7 @@ impl QuickRow {
             QuickRow::DateTime => "Date & Time",
             QuickRow::About => "About",
             QuickRow::Network => "Network",
+            QuickRow::SaveFormat => "Save Format",
             QuickRow::GbaShader => "Shader",
             QuickRow::GbShader => "Shader",
             QuickRow::GbcShader => "Shader",
@@ -665,10 +670,12 @@ pub enum QuickValue {
     Level7,
     Level8,
     Level9,
+    RetroArch,
+    SlotFormat,
 }
 
 impl QuickValue {
-    pub const ALL: [QuickValue; 33] = [
+    pub const ALL: [QuickValue; 35] = [
         QuickValue::Speed2,
         QuickValue::Speed3,
         QuickValue::Speed4,
@@ -702,6 +709,8 @@ impl QuickValue {
         QuickValue::Level7,
         QuickValue::Level8,
         QuickValue::Level9,
+        QuickValue::RetroArch,
+        QuickValue::SlotFormat,
     ];
 
     pub const LEVELS: [QuickValue; 10] = [
@@ -765,6 +774,8 @@ impl QuickValue {
             QuickValue::Level7 => "7",
             QuickValue::Level8 => "8",
             QuickValue::Level9 => "9",
+            QuickValue::RetroArch => "RetroArch",
+            QuickValue::SlotFormat => "slot",
         }
     }
 

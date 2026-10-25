@@ -67,9 +67,9 @@ pub use link_art::{
 };
 pub use net_screen::{
     entries as net_entries, key_box as net_key_box, net_face, plain_face, qr_face, sync_text,
-    wifi_text, Action as NetAction, Cap as NetCap, KeyTarget, Keyboard as NetKeyboard,
+    time_text, wifi_text, Action as NetAction, Cap as NetCap, KeyTarget, Keyboard as NetKeyboard,
     Layer as NetLayer, NetEntry, NetFace, NetFaces, NetIntent, NetKey, NetPage, NetScreen,
-    OverviewRow, OTHER_NETWORK,
+    OverviewRow, SyncRow, OTHER_NETWORK,
 };
 pub use plate::{
     arrows_hint_coloured, arrows_hint_face, arrows_hint_width, cap_width, centred_hints, pad_hint_face,

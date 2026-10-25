@@ -1042,6 +1042,8 @@ impl App {
         if !matches!(offer, Some(PendingUndo::Load { .. })) || !self.may_load_state() {
             hidden.push(QuickRow::UndoLoad);
         }
+        // Where saves go is chosen on the shelf, not under a running game.
+        hidden.push(QuickRow::SaveFormat);
         hidden
     }
 
@@ -1152,6 +1154,7 @@ impl App {
             QuickRow::LeftStick => Some(QuickValue::flag(self.state.left_stick_dpad)),
             QuickRow::AutoLoad => Some(QuickValue::flag(self.state.auto_load)),
             QuickRow::EjectSave => Some(QuickValue::flag(self.state.eject_save)),
+            QuickRow::SaveFormat => Some(self.save_format_value()),
             QuickRow::Turbo => Some(QuickValue::flag(self.state.turbo)),
             QuickRow::Rewind => Some(QuickValue::flag(self.state.rewind)),
             QuickRow::Recents => Some(if self.state.show_recents {
@@ -2844,6 +2847,7 @@ impl App {
             | QuickRow::ScShaderBack
             | QuickRow::ScFastForward
             | QuickRow::ScRewind
+            | QuickRow::SaveFormat
             | QuickRow::LidOff => {}
         }
     }
@@ -2919,6 +2923,9 @@ impl App {
             );
             self.persist();
             return;
+        }
+        if row == QuickRow::SaveFormat {
+            return self.toggle_save_format();
         }
         let s = &mut self.state;
         match row {
@@ -3039,6 +3046,7 @@ impl App {
             | QuickRow::Controls
             | QuickRow::ControlsShelf
             | QuickRow::ControlsInGame
+            | QuickRow::SaveFormat
             | QuickRow::LidOff => return,
         }
         self.persist();

@@ -79,7 +79,9 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with:
-          sparse-checkout: CHANGELOG.md
+          sparse-checkout: |
+            CHANGELOG.md
+            CHANGELOG-net.md
           sparse-checkout-cone-mode: false
 
       - uses: actions/download-artifact@v8
@@ -92,11 +94,14 @@ jobs:
           ZIP: ${{ needs.build.outputs.zip }}
         run: |
           set -eu
+          # This fork's releases (v1.9.0-net.1) keep their notes apart from upstream's.
+          changelog=CHANGELOG.md
+          case "$GITHUB_REF_NAME" in *-net.*) changelog=CHANGELOG-net.md ;; esac
           awk -v head="## [${GITHUB_REF_NAME#v}]" '
             index($0, head) == 1 { found = 1; next }
             found && /^## / { exit }
             found { print }
-          ' CHANGELOG.md | sed -e '/./,$!d' > notes.md
+          ' "$changelog" | sed -e '/./,$!d' > notes.md
           test -s notes.md
           gh release create "$GITHUB_REF_NAME" "$ZIP" --repo "$GITHUB_REPOSITORY" \
             --title "$GITHUB_REF_NAME" --notes-file notes.md

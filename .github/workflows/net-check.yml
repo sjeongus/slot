@@ -1,0 +1,51 @@
+name: network check
+
+# The fork's own checks: the network crate, its screens, the card scripts, and the device build.
+on:
+  push:
+    branches: [net]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: System libraries for the host build
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libudev-dev libasound2-dev pkg-config
+
+      - name: Toolchain
+        run: rustup show active-toolchain
+
+      - name: Card scripts
+        run: |
+          sh card/test-slotlink.sh
+          sh card/test-slotnet.sh
+
+      - name: Syncthing for the integration test
+        run: |
+          set -eu
+          v=v2.1.7
+          curl -fsSL -o st.tgz "https://github.com/syncthing/syncthing/releases/download/$v/syncthing-linux-amd64-$v.tar.gz"
+          echo "2edc416e7ed136b7c858ed5f3f02a3b8316589605e54c380228ceea7acbf0142  st.tgz" | sha256sum -c -
+          tar -xzf st.tgz
+          echo "SLOT_TEST_SYNCTHING=$PWD/syncthing-linux-amd64-$v/syncthing" >> "$GITHUB_ENV"
+
+      - name: Tests
+        env:
+          SLOT_SILENT: '1'
+        run: |
+          cargo test -p slot-net
+          cargo test -p slot-ui --test net_screen --test quick_menu
+          cargo test -p slot --test network --test quick_menu --test app
+
+      - name: Lint the new code and the device build
+        run: |
+          cargo clippy -p slot-net --all-targets -- -D warnings
+          cargo clippy -p slot-net --features device -- -D warnings
+          cargo clippy -p slot --no-default-features --features device -- -D warnings

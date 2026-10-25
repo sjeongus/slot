@@ -12,6 +12,35 @@
 
 ---
 
+# About this fork
+
+This is [slot](https://github.com/BrandonKowalski/slot) with **Wi-Fi and Syncthing** added.
+Everything else is upstream slot, kept as close to it as possible so new releases merge in
+cleanly.
+
+**Why it exists:** I play the same games across several devices, and I want my saves to follow
+me. Upstream slot has no way to join a Wi-Fi network; it only uses Wi-Fi for link play. So
+there's no way to sync saves without pulling the SD card. This fork adds:
+
+- **Settings > Network.** Scan for networks, choose one, and type its password on an on-screen
+  keyboard driven by the D-pad or stick. Saved networks reconnect whenever the device is on, and
+  hidden networks are supported.
+- **[Syncthing](https://syncthing.net)**, bundled. One switch keeps `Saves/` and `States/` in
+  step with your other devices. The device ID shows as a QR code to scan from the Syncthing app.
+  Syncing pauses while a game is running, so another device's save can't land under it.
+- **Link play still works.** Starting a link sets home Wi-Fi and Syncthing aside, and ending it
+  brings them back.
+
+Set-up, where things are stored, and how upstream releases are merged are in
+**[FORK.md](FORK.md)**. Builds come from this repo's
+[Actions](https://github.com/sjeongus/slot/actions/workflows/release.yml) as `slot-*-h700.zip`,
+installed the same way as upstream slot.
+
+Built for the RG35XX-H. Not affiliated with or supported by the upstream author, so please file
+problems with the network features here rather than upstream.
+
+---
+
 # What is slot?
 
 A bespoke, Game Boy-centric frontend for the Anbernic RG SP.

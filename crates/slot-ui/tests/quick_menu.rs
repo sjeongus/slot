@@ -477,7 +477,15 @@ fn a_scroll_bar_shows_only_on_a_page_with_rows_out_of_sight() {
         slot_ui::quick_scroll(QuickRow::Shader, &[QuickRow::Palette, QuickRow::Bezel]).is_some(),
         "four rows in three still scroll"
     );
-    assert_eq!(slot_ui::quick_scroll(QuickRow::Rumble, &[]), None);
+    assert_eq!(
+        slot_ui::quick_scroll(QuickRow::Rumble, &[QuickRow::LeftStick]),
+        None,
+        "eight Gameplay rows fit"
+    );
+    assert!(
+        slot_ui::quick_scroll(QuickRow::Rumble, &[]).is_some(),
+        "nine scroll"
+    );
     assert!(slot_ui::quick_scroll(QuickRow::GameUp, &[]).is_some());
 }
 

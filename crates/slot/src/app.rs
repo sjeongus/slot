@@ -413,6 +413,8 @@ pub struct App {
     quick_palette_faces: Option<[(TexId, u32, u32); 2]>,
     quick_bezel_faces: [Option<[(TexId, u32, u32); 2]>; 3],
     game_bezel: Option<TexId>,
+    /// The custom bezel in use leaves its window at the top, so the game moves up to it.
+    bezel_on_top: bool,
     in_game_menu: Option<QuickRow>,
     /// 0 while the pause footer is off the bottom, 1 when it sits in the carousel's place.
     footer: f32,
@@ -623,6 +625,7 @@ impl App {
             quick_palette_faces: None,
             quick_bezel_faces: [None, None, None],
             game_bezel: None,
+            bezel_on_top: false,
             in_game_menu: None,
             footer: 0.0,
             footer_row: None,
@@ -1325,6 +1328,21 @@ impl App {
 
     pub fn set_game_bezel(&mut self, tex: Option<TexId>) {
         self.game_bezel = tex;
+    }
+
+    pub fn set_bezel_on_top(&mut self, on_top: bool) {
+        self.bezel_on_top = on_top;
+    }
+
+    /// The game sits at the top of a 4:3 screen: under the AGS-102 frame, or under a custom
+    /// bezel drawn with its window there.
+    pub fn game_on_top(&self) -> bool {
+        self.sp_frame()
+            || (self.bezel_on_top
+                && matches!(
+                    self.resolved_bezel(self.playing_platform()),
+                    BezelPick::File(_)
+                ))
     }
 
     pub fn shown_game_bezel(&self) -> Option<TexId> {

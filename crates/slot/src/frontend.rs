@@ -605,7 +605,7 @@ impl Frontend {
         sync_wallpaper(self.session.app_mut(), compositor, &mut self.wallpaper);
         sync_game_bezel(self.session.app_mut(), compositor, &mut self.game_bezel);
         compositor.set_game_bezel(self.session.app().shown_game_bezel());
-        compositor.set_sp_frame(self.session.app().sp_frame());
+        compositor.set_sp_frame(self.session.app().game_on_top());
         sync_core_picker(
             self.session.app_mut(),
             compositor,
@@ -1272,6 +1272,11 @@ fn sync_game_bezel(app: &mut App, compositor: &mut Compositor, state: &mut Bezel
                 })
                 .and_then(|path| game_bezel_face(&path, w, h)),
         };
+        let on_top = matches!(shown.1, BezelPick::File(_))
+            && rgba
+                .as_deref()
+                .is_some_and(|rgba| crate::bezel::wants_game_on_top(rgba, w, h));
+        app.set_bezel_on_top(on_top);
         let tex = rgba.map(|rgba| match state.tex {
             Some(id) => {
                 compositor.update_texture(id, w, h, &rgba);

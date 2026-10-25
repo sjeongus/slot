@@ -1321,14 +1321,19 @@ fn scrolls(page: &[QuickRow]) -> bool {
         &QuickRow::SHORTCUTS,
         &QuickRow::GENERAL,
         &QuickRow::PLAY_SCREEN,
+        &QuickRow::GAME,
     ]
     .contains(&page)
 }
 
+/// Gameplay shows the eight rows that fit, and scrolls only past them.
+const GAME_VISIBLE: usize = 8;
+
 fn visible(page: &[QuickRow]) -> usize {
-    match page == QuickRow::PLAY_SCREEN {
-        true => PANEL_VISIBLE,
-        false => QUICK_VISIBLE,
+    match page {
+        p if p == QuickRow::PLAY_SCREEN => PANEL_VISIBLE,
+        p if p == QuickRow::GAME => GAME_VISIBLE,
+        _ => QUICK_VISIBLE,
     }
 }
 

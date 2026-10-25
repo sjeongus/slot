@@ -48,3 +48,62 @@ pub fn pick(root: &Path, panel: (u32, u32)) -> Option<PathBuf> {
     fits.sort_by_key(|((w, _), p)| (w.abs_diff(panel.0), p.clone()));
     fits.into_iter().next().map(|(_, p)| p)
 }
+
+/// Whether a bezel drawn for this panel wants the game at the top of the screen, as the
+/// AGS-102 frame has it, rather than centred. Read from the bezel itself: the clear window down
+/// its middle column is compared with where the game sits either way.
+pub fn wants_game_on_top(rgba: &[u8], w: u32, h: u32) -> bool {
+    if w == 0 || rgba.len() < (w * h * 4) as usize {
+        return false;
+    }
+    let x = (w / 2) as usize;
+    let clear = |y: u32| rgba[(y as usize * w as usize + x) * 4 + 3] < 32;
+    let (Some(first), Some(last)) = ((0..h).find(|&y| clear(y)), (0..h).rev().find(|&y| clear(y)))
+    else {
+        return false;
+    };
+    let window = f64::from(first + last) / 2.0;
+    let middle = |(_, y, _, gh): (i32, i32, i32, i32)| f64::from(y) + f64::from(gh) / 2.0;
+    let top = middle(slot_gfx::game_rect((w, h), true));
+    let centred = middle(slot_gfx::game_rect((w, h), false));
+    (window - top).abs() < (window - centred).abs()
+}
+
+#[cfg(test)]
+mod window_tests {
+    use super::wants_game_on_top;
+
+    /// A 640 x 480 bezel, opaque but for a clear window `rows` down the middle.
+    fn bezel(rows: std::ops::Range<u32>) -> Vec<u8> {
+        let (w, h) = (640u32, 480u32);
+        let mut rgba = vec![255u8; (w * h * 4) as usize];
+        for y in rows {
+            for x in 0..w {
+                rgba[((y * w + x) * 4 + 3) as usize] = 0;
+            }
+        }
+        rgba
+    }
+
+    #[test]
+    fn a_window_at_the_top_moves_the_game_up() {
+        assert!(wants_game_on_top(&bezel(0..427), 640, 480));
+        assert!(
+            wants_game_on_top(&bezel(21..405), 640, 480),
+            "a GB window, top layout"
+        );
+    }
+
+    #[test]
+    fn a_centred_window_keeps_the_game_centred() {
+        assert!(!wants_game_on_top(&bezel(27..454), 640, 480));
+        assert!(
+            !wants_game_on_top(&bezel(48..432), 640, 480),
+            "a GB window, centred"
+        );
+        assert!(
+            !wants_game_on_top(&bezel(0..0), 640, 480),
+            "no window at all"
+        );
+    }
+}

@@ -17,6 +17,10 @@ Make it the size of the screen:
 GBA bezels show only on the 640 x 480 devices, where the game shows at
 x 0, y 27, 640 x 427. On the 720 x 480 devices a GBA game fills the screen.
 
+On the 640 x 480 devices the game moves up to y 0 when a bezel's clear window
+sits at the top, as it does under the AGS-102 frame. Leave the window where
+you want the game: at the top, or in the middle.
+
 The bezel is drawn over the game, so leave the game area transparent.
 Other sizes are scaled to fill and cropped from the centre. On the 640 x 480
 devices a 640 x 427 bezel covers only the game area, with black above and below.

@@ -13,7 +13,8 @@ use slot_net::{valid_passphrase, NetStatus, ScanResult, SyncState, WifiState};
 use crate::draw::{Canvas, Draw, TexId};
 use crate::hud::PLATE_H;
 use crate::plate::{hint_coloured, title_face, Hint, UndoFace};
-use crate::power_menu::MENU_INK;
+use crate::power_menu::{MENU_H, MENU_INK, MENU_PAD};
+use crate::quick_menu::{QUICK_EDGE, QUICK_LABEL_X, QUICK_PITCH, QUICK_VISIBLE};
 use crate::text;
 
 /// The buttons the screen understands. slot maps its own input onto these.
@@ -95,16 +96,27 @@ impl OverviewRow {
         matches!(self, OverviewRow::Network | OverviewRow::Syncthing)
     }
 
-    fn value(self, status: &NetStatus) -> String {
+    fn value(self, status: &NetStatus) -> Shown {
         match self {
-            OverviewRow::Wifi => on_off(status.wifi_on).to_string(),
-            OverviewRow::Network => wifi_text(status),
-            OverviewRow::Address => status.ip().unwrap_or("—").to_string(),
-            OverviewRow::Syncthing => sync_text(status),
-            OverviewRow::NetworkTime => time_text(status),
-            OverviewRow::TimeZone => zone_text(status),
+            OverviewRow::Wifi => Shown::Switch(on_off(status.wifi_on).to_string()),
+            OverviewRow::Network => Shown::Text(wifi_text(status)),
+            OverviewRow::Address => Shown::Text(status.ip().unwrap_or("—").to_string()),
+            OverviewRow::Syncthing => Shown::Text(sync_text(status)),
+            OverviewRow::NetworkTime => Shown::Switch(time_text(status)),
+            OverviewRow::TimeZone => Shown::Choice(zone_text(status)),
         }
     }
+}
+
+/// How a row's value is drawn, matching the quick menu.
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub enum Shown {
+    /// ON and OFF: capitals, with arrows either side while selected.
+    Switch(String),
+    /// A choice in its own case (a time zone), with arrows while selected.
+    Choice(String),
+    /// Names, addresses and states, in their own case.
+    Text(String),
 }
 
 /// The rows of the Syncthing page.
@@ -131,11 +143,11 @@ impl SyncRow {
         matches!(self, SyncRow::Syncthing | SyncRow::SyncInGame)
     }
 
-    fn value(self, status: &NetStatus) -> String {
+    fn value(self, status: &NetStatus) -> Shown {
         match self {
-            SyncRow::Syncthing => on_off(status.syncthing_on).to_string(),
-            SyncRow::SyncInGame => on_off(status.sync_in_game).to_string(),
-            SyncRow::Details => sync_text(status),
+            SyncRow::Syncthing => Shown::Switch(on_off(status.syncthing_on).to_string()),
+            SyncRow::SyncInGame => Shown::Switch(on_off(status.sync_in_game).to_string()),
+            SyncRow::Details => Shown::Text(sync_text(status)),
         }
     }
 }
@@ -827,8 +839,13 @@ impl NetScreen {
 #[derive(Clone, PartialEq, Eq, Hash, Debug)]
 pub enum NetFace {
     Title(String),
-    /// Row labels, in the quick menu's capitals.
+    /// Row labels and switch values, drawn exactly as the quick menu draws its own.
     Label(String, bool),
+    /// A row's value in its own case, at the quick menu's size.
+    Row(String, bool),
+    /// The quick menu's pointer and its left and right arrows.
+    Pointer,
+    Caret(bool),
     /// Values and network names, case kept.
     Value(String, bool),
     /// Secondary lines, case kept.
@@ -844,7 +861,7 @@ pub enum NetFace {
 
 const DIM: [u8; 3] = [0x9a, 0x9a, 0xa4];
 const DARK: [u8; 3] = [0x1a, 0x1a, 0x1e];
-const LABEL_PX: f32 = 26.0;
+const ROW_MAX_W: u32 = 340;
 const VALUE_PX: f32 = 22.0;
 const SMALL_PX: f32 = 17.0;
 const MONO_PX: f32 = 19.0;
@@ -909,22 +926,16 @@ fn tint(cov: &[u8], w: u32, h: u32, ink: [u8; 3]) -> UndoFace {
     UndoFace { rgba, w, h }
 }
 
-/// A label in the quick menu's style: capitals, letter spaced.
-fn label_face(label: &str, ink: [u8; 3]) -> UndoFace {
-    let Some(font) = text::label_font() else {
-        return empty();
-    };
-    let layout = text::fit(font, label, MAX_FACE_W as f32, 1, LABEL_PX, 16.0);
-    let w = layout
-        .lines
-        .iter()
-        .map(|l| text::line_width(font, l, layout.px, layout.tracking))
-        .fold(0.0, f32::max)
-        .ceil() as u32
-        + 2;
-    let h = 36;
+/// A value in its own case, at the quick menu's size, in a box of the quick menu's height
+/// with the same side padding, so it lines up with the capitals beside it.
+fn row_face(line: &str, lit: bool) -> UndoFace {
+    let ink = if lit { MENU_INK } else { DIM };
+    let face = plain_face(line, crate::power_menu::MENU_PX, ink, ROW_MAX_W);
+    let (pad, h) = (MENU_PAD, MENU_H);
+    let w = face.w + 2 * pad;
     let mut rgba = vec![0u8; (w * h * 4) as usize];
-    text::draw_centred(&mut rgba, w, h, &layout, ink);
+    let top = h.saturating_sub(face.h) / 2;
+    crate::plate::blit(&mut rgba, w, &face.rgba, face.w, face.h.min(h), pad, top);
     UndoFace { rgba, w, h }
 }
 
@@ -992,7 +1003,10 @@ pub fn net_face(face: &NetFace) -> UndoFace {
     let ink = |lit: bool| if lit { MENU_INK } else { DIM };
     match face {
         NetFace::Title(t) => title_face(t),
-        NetFace::Label(t, lit) => label_face(t, ink(*lit)),
+        NetFace::Label(t, lit) => crate::quick_menu::quick_value_face(t, *lit),
+        NetFace::Row(t, lit) => row_face(t, *lit),
+        NetFace::Pointer => crate::quick_menu::quick_pointer_face(),
+        NetFace::Caret(right) => crate::quick_menu::quick_caret_face(*right),
         NetFace::Value(t, lit) => plain_face(t, VALUE_PX, ink(*lit), 340),
         NetFace::Small(t) => plain_face(t, SMALL_PX, DIM, MAX_FACE_W),
         NetFace::Mono(t) => plain_face(t, MONO_PX, MENU_INK, MAX_FACE_W),
@@ -1045,7 +1059,6 @@ impl NetFaces {
 // Layout and drawing
 
 const EDGE: f32 = 40.0;
-const ROW_PITCH: f32 = 50.0;
 const LIST_PITCH: f32 = 46.0;
 const LIST_SHOWN: usize = 7;
 const HIGHLIGHT: [f32; 4] = [1.0, 1.0, 1.0, 0.10];
@@ -1055,6 +1068,13 @@ const FIELD_FILL: [f32; 4] = [0.0, 0.0, 0.0, 0.45];
 const BAR_ON: [f32; 4] = [0.965, 0.957, 0.937, 1.0];
 const BAR_OFF: [f32; 4] = [1.0, 1.0, 1.0, 0.18];
 const KEY_GAP: f32 = 7.0;
+/// The quick menu's own spacing, so the two read as one menu.
+const TYPE_DROP: f32 = 4.0;
+const POINTER_GAP: f32 = 14.0;
+const POINTER_BLEED: f32 = 4.0;
+const CARET_GAP: f32 = 14.0;
+const SCROLL_INSET: f32 = 12.0;
+const SCROLL_W: f32 = 4.0;
 const KEY_H: f32 = 44.0;
 
 fn tex(out: &mut Vec<Draw>, t: (TexId, u32, u32), x: f32, y: f32) {
@@ -1117,14 +1137,14 @@ impl NetScreen {
     pub fn draw(&self, canvas: Canvas, status: &NetStatus, faces: &NetFaces, out: &mut Vec<Draw>) {
         match &self.page {
             NetPage::Overview => {
-                let rows: Vec<(&str, String)> = OverviewRow::ALL
+                let rows: Vec<(&str, Shown)> = OverviewRow::ALL
                     .iter()
                     .map(|r| (r.label(), r.value(status)))
                     .collect();
                 draw_rows(canvas, &rows, self.row, faces, out);
             }
             NetPage::Syncthing => {
-                let rows: Vec<(&str, String)> = SyncRow::ALL
+                let rows: Vec<(&str, Shown)> = SyncRow::ALL
                     .iter()
                     .map(|r| (r.label(), r.value(status)))
                     .collect();
@@ -1318,35 +1338,83 @@ impl NetScreen {
     }
 }
 
-/// A page of labelled rows with their values on the right, centred in the space between the
-/// title and hint plates.
+/// A page of labelled rows laid out as the quick menu lays out its own: the pointer beside the
+/// selected label, values on the right with arrows when they can change, and a window of
+/// six rows that scrolls.
 fn draw_rows(
     canvas: Canvas,
-    rows: &[(&str, String)],
-    lit_row: usize,
+    rows: &[(&str, Shown)],
+    selected: usize,
     faces: &NetFaces,
     out: &mut Vec<Draw>,
 ) {
-    let n = rows.len() as f32;
-    let pitch = ROW_PITCH.min((canvas.h - 2.0 * PLATE_H - 8.0) / n).floor();
-    let top = PLATE_H + (canvas.h - 2.0 * PLATE_H - n * pitch) / 2.0;
-    for (i, (label, value)) in rows.iter().enumerate() {
-        let y = top + i as f32 * pitch;
-        let lit = i == lit_row;
-        if lit {
-            rect(out, EDGE / 2.0, y, canvas.w - EDGE, pitch - 4.0, HIGHLIGHT);
-        }
+    let n = rows.len();
+    let selected = selected.min(n.saturating_sub(1));
+    let shown = n.min(QUICK_VISIBLE);
+    let start = selected
+        .saturating_sub(shown / 2)
+        .min(n.saturating_sub(shown));
+    let block = QUICK_PITCH * shown as f32;
+    let top = PLATE_H + (canvas.h - 2.0 * PLATE_H - block) / 2.0;
+    let pad = MENU_PAD as f32;
+    let right = canvas.w - QUICK_EDGE;
+    for (slot, (i, (label, value))) in rows.iter().enumerate().skip(start).take(shown).enumerate() {
+        let y = top + slot as f32 * QUICK_PITCH + TYPE_DROP;
+        let lit = i == selected;
+        let x = QUICK_LABEL_X - pad;
         if let Some(t) = faces.get(NetFace::Label((*label).into(), lit)) {
-            tex(out, t, EDGE, y + (pitch - 4.0 - t.2 as f32) / 2.0);
+            tex(out, t, x, y);
         }
-        if let Some(t) = faces.get(NetFace::Value(value.clone(), lit)) {
-            tex(
-                out,
-                t,
-                canvas.w - EDGE - t.1 as f32,
-                y + (pitch - 4.0 - t.2 as f32) / 2.0,
-            );
+        if lit {
+            if let Some(p) = faces.get(NetFace::Pointer) {
+                tex(
+                    out,
+                    p,
+                    x + pad - POINTER_GAP - p.1 as f32,
+                    y - POINTER_BLEED,
+                );
+            }
         }
+        let face = match value {
+            Shown::Switch(t) => NetFace::Label(t.clone(), lit),
+            Shown::Choice(t) | Shown::Text(t) => NetFace::Row(t.clone(), lit),
+        };
+        let arrows = lit && matches!(value, Shown::Switch(_) | Shown::Choice(_));
+        // Ask for every face first, so one frame requests them all.
+        let v = faces.get(face);
+        let carets = match arrows {
+            true => (
+                faces.get(NetFace::Caret(false)),
+                faces.get(NetFace::Caret(true)),
+            ),
+            false => (None, None),
+        };
+        let Some(v) = v else {
+            continue;
+        };
+        let (Some(l), Some(r)) = carets else {
+            tex(out, v, right + pad - v.1 as f32, y);
+            continue;
+        };
+        let rx = right - r.1 as f32;
+        tex(out, r, rx, y);
+        let vx = rx - CARET_GAP + pad - v.1 as f32;
+        tex(out, v, vx, y);
+        tex(out, l, vx + pad - CARET_GAP - l.1 as f32, y);
+    }
+    if n > shown {
+        let x = canvas.w - SCROLL_INSET - SCROLL_W;
+        rect(out, x, top, SCROLL_W, block, [0.6, 0.6, 0.64, 0.3]);
+        let thumb = block / n as f32;
+        let along = selected as f32 / (n - 1) as f32;
+        rect(
+            out,
+            x,
+            top + (block - thumb) * along,
+            SCROLL_W,
+            thumb,
+            BAR_ON,
+        );
     }
 }
 

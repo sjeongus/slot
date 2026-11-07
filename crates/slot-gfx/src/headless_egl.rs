@@ -98,8 +98,9 @@ impl Surface for HeadlessSurface {
             if let Ok(f) = self.gles.get::<*const c_void>(c.as_bytes_with_nul()) {
                 return *f;
             }
-            let gpa: libloading::Symbol<unsafe extern "C" fn(*const i8) -> *const c_void> =
-                self.egl.get(b"eglGetProcAddress").unwrap();
+            let gpa: libloading::Symbol<
+                unsafe extern "C" fn(*const std::ffi::c_char) -> *const c_void,
+            > = self.egl.get(b"eglGetProcAddress").unwrap();
             gpa(c.as_ptr())
         }
     }

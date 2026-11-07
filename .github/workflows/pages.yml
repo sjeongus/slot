@@ -5,7 +5,11 @@ on:
     branches: [main]
     paths:
       - 'site/**'
+      - 'CHANGELOG.md'
       - '.github/workflows/pages.yml'
+      - '.github/scripts/**'
+  schedule:
+    - cron: '0 6,18 * * *'
   workflow_dispatch:
 
 permissions:
@@ -36,6 +40,12 @@ jobs:
       - run: pip install zensical==0.0.71
 
       - run: zensical build --clean --strict -f site/zensical.toml
+
+      - name: Publish versions.json
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          OUT=site/public/versions.json SLOT_REPO="$GITHUB_REPOSITORY" bash .github/scripts/versions.sh
 
       - uses: actions/upload-pages-artifact@v3
         with:

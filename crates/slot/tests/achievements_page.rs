@@ -1,15 +1,15 @@
-//! The Network page shows achievements as they are, however often it is opened and whatever
-//! Wi-Fi is doing. In a file of its own: achievements are one per process.
+//! General > Achievements works with no network at all, and logs in through the
+//! keyboard. In a file of its own: achievements are one per process.
 
 mod common;
 
 use std::path::Path;
 
 use common::{app_booting_at, tmp_root_with_carts, CLOCK_IS_SET};
-use slot::app::{App, Phase};
+use slot::app::{App, KeyboardFor, Phase};
 use slot_input::{Action, Btn};
 use slot_store::{write_slot_state, SlotState};
-use slot_ui::QuickRow;
+use slot_ui::{QuickRow, QuickValue};
 
 struct NoNetwork;
 
@@ -27,19 +27,34 @@ fn press(a: &mut App, btn: Btn) {
     a.apply(Action::GbaUp(btn));
 }
 
-fn open_network(a: &mut App) {
-    if a.quick_menu() != Some(QuickRow::Network) {
-        a.apply(Action::QuickMenu);
-        for _ in 0..QuickRow::Network.position(&a.hidden_rows()) {
-            press(a, Btn::Down);
+fn select(a: &mut App, row: QuickRow) {
+    for _ in 0..16 {
+        if a.quick_menu() == Some(row) {
+            return;
         }
+        press(a, Btn::Down);
     }
+    panic!("no {row:?} on {:?}", a.phase());
+}
+
+fn open_achievements(a: &mut App) {
+    a.apply(Action::QuickMenu);
+    select(a, QuickRow::General);
     press(a, Btn::A);
-    assert!(matches!(a.phase(), Phase::Network));
+    select(a, QuickRow::Achievements);
+    press(a, Btn::A);
+    assert_eq!(a.quick_menu(), Some(QuickRow::AchPower));
+}
+
+fn settle(a: &mut App) {
+    for _ in 0..10 {
+        a.update(0.016);
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    }
 }
 
 #[test]
-fn achievements_read_on_after_wifi_goes_off_and_the_page_reopens() {
+fn achievements_stay_on_offline_and_the_account_row_asks_for_a_login() {
     let d = tmp_root_with_carts(&["Emerald", "Fusion"]);
     write_slot_state(
         d.path(),
@@ -59,18 +74,45 @@ fn achievements_read_on_after_wifi_goes_off_and_the_page_reopens() {
     slot_ach::start_with(d.path(), Box::new(NoNetwork), || false);
     let (mut a, _) = app_booting_at(d.path(), CLOCK_IS_SET);
     a.set_net(slot_net::start(d.path(), None));
-    a.update(0.016);
-
-    open_network(&mut a);
-    assert!(a.net_screen().ach.enabled, "on when first opened");
-    press(&mut a, Btn::A); // Wi-Fi is the first row: off.
-    for _ in 0..20 {
-        a.update(0.016);
-        std::thread::sleep(std::time::Duration::from_millis(20));
+    for _ in 0..4 {
+        let t = a.now();
+        a.tick_ms(t + 1_000);
     }
-    assert!(!a.net_status().wifi_on);
-    press(&mut a, Btn::B);
-    open_network(&mut a);
-    assert!(a.net_screen().ach.enabled, "still on after Wi-Fi went off");
+
+    open_achievements(&mut a);
+    assert_eq!(a.quick_value(QuickRow::AchPower), Some(QuickValue::On));
+    for _ in 0..3 {
+        press(&mut a, Btn::B);
+    }
+    assert!(matches!(a.phase(), Phase::Shelf), "{:?}", a.phase());
+    open_achievements(&mut a);
+    assert_eq!(
+        a.quick_value(QuickRow::AchPower),
+        Some(QuickValue::On),
+        "reopened"
+    );
+
+    press(&mut a, Btn::Right);
+    settle(&mut a);
+    assert!(!slot_ach::status().enabled);
+    assert_eq!(a.quick_value(QuickRow::AchPower), Some(QuickValue::Off));
+    assert!(a.hidden_rows().contains(&QuickRow::AchAccount));
+    press(&mut a, Btn::Right);
+    settle(&mut a);
     assert!(slot_ach::status().enabled);
+
+    select(&mut a, QuickRow::AchAccount);
+    press(&mut a, Btn::A);
+    assert_eq!(a.keyboard_for(), Some(&KeyboardFor::AchUser));
+    assert_eq!(a.keyboard().map(|k| k.text()), Some("User".to_string()));
+    press(&mut a, Btn::Start);
+    assert_eq!(
+        a.keyboard_for(),
+        Some(&KeyboardFor::AchPassword {
+            user: "User".into()
+        })
+    );
+    press(&mut a, Btn::Y);
+    assert!(a.keyboard().is_none());
+    assert!(matches!(a.phase(), Phase::QuickMenu { .. }));
 }

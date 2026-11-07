@@ -67,6 +67,41 @@ pub fn fit_box(
     }
 }
 
+pub fn fit_even(font: &Font, text: &str, max_w: f32, max_px: f32, min_px: f32) -> Layout {
+    let upper = text.to_uppercase();
+    let words: Vec<&str> = upper.split_whitespace().collect();
+    let mut px = max_px;
+    while px >= min_px {
+        let tracking = tracking_for(px);
+        let width = |ws: &[&str]| line_width(font, &ws.join(" "), px, tracking);
+        if width(&words) <= max_w {
+            return Layout {
+                lines: vec![words.join(" ")],
+                px,
+                tracking,
+            };
+        }
+        let alone = |i: usize| words.len() > 2 && i == words.len() - 1;
+        let split = (1..words.len())
+            .filter(|&i| width(&words[..i]) <= max_w && width(&words[i..]) <= max_w)
+            .min_by(|&a, &b| {
+                let longer = |i: usize| width(&words[..i]).max(width(&words[i..]));
+                (alone(a), longer(a))
+                    .partial_cmp(&(alone(b), longer(b)))
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            });
+        if let Some(i) = split {
+            return Layout {
+                lines: vec![words[..i].join(" "), words[i..].join(" ")],
+                px,
+                tracking,
+            };
+        }
+        px -= 1.0;
+    }
+    fit(font, text, max_w, 2, min_px, min_px)
+}
+
 pub fn draw_centred(dst: &mut [u8], dst_w: u32, dst_h: u32, layout: &Layout, colour: [u8; 3]) {
     for (i, a) in coverage(dst_w, dst_h, layout).into_iter().enumerate() {
         if a > 0 {
@@ -75,7 +110,33 @@ pub fn draw_centred(dst: &mut [u8], dst_w: u32, dst_h: u32, layout: &Layout, col
     }
 }
 
+pub fn draw_left(
+    dst: &mut [u8],
+    dst_w: u32,
+    dst_h: u32,
+    layout: &Layout,
+    pen: f32,
+    colour: [u8; 3],
+) {
+    for (i, a) in coverage_left(dst_w, dst_h, layout, pen)
+        .into_iter()
+        .enumerate()
+    {
+        if a > 0 {
+            blend(&mut dst[i * 4..i * 4 + 4], a as u32, colour);
+        }
+    }
+}
+
 pub fn coverage(dst_w: u32, dst_h: u32, layout: &Layout) -> Vec<u8> {
+    coverage_from(dst_w, dst_h, layout, None)
+}
+
+pub fn coverage_left(dst_w: u32, dst_h: u32, layout: &Layout, pen: f32) -> Vec<u8> {
+    coverage_from(dst_w, dst_h, layout, Some(pen))
+}
+
+fn coverage_from(dst_w: u32, dst_h: u32, layout: &Layout, left: Option<f32>) -> Vec<u8> {
     let mut out = vec![0u8; (dst_w * dst_h) as usize];
     let Some(font) = label_font() else { return out };
     let Some(vm) = font.horizontal_line_metrics(layout.px) else {
@@ -86,7 +147,9 @@ pub fn coverage(dst_w: u32, dst_h: u32, layout: &Layout) -> Vec<u8> {
     let mut baseline = (dst_h as f32 - block_h) / 2.0 + vm.ascent;
 
     for line in &layout.lines {
-        let mut pen = (dst_w as f32 - line_width(font, line, layout.px, layout.tracking)) / 2.0;
+        let mut pen = left.unwrap_or_else(|| {
+            (dst_w as f32 - line_width(font, line, layout.px, layout.tracking)) / 2.0
+        });
         for ch in line.chars() {
             let (m, cov) = font.rasterize(ch, layout.px);
             stamp(

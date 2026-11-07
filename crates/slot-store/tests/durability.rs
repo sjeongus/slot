@@ -2,8 +2,9 @@ mod common;
 
 use common::tmp_root;
 use slot_store::{
-    atomic_write, read_slot_state, sweep_temps, write_slot_state, Appearance, BezelPick, GbPalette,
-    Platform, Recent, Shader, SlotState, WallpaperPick, WallpaperTint, FF_SPEEDS, FF_SPEED_DEFAULT,
+    atomic_write, read_slot_state, sweep_temps, write_slot_state, Appearance, BezelPick, Blending,
+    Core, GbPalette, Platform, Recent, Scale, Shader, SlotState, Stretch, WallpaperPick,
+    WallpaperTint, Zone, FF_SPEEDS, FF_SPEED_DEFAULT,
 };
 use tempfile::tempdir;
 
@@ -91,12 +92,12 @@ fn slot_state_round_trips_including_a_stem_with_an_equals_sign() {
     let d = tmp_root();
     let s = SlotState {
         cart: Some("Cheats = On".into()),
-        brightness: 3,
+        brightness: 0,
+        dim: 2,
         blue_light: 9,
         volume: 71,
         muted: true,
         clock_set: true,
-        utc_offset_min: 0,
         ..SlotState::default()
     };
     write_slot_state(d.path(), &s).unwrap();
@@ -141,7 +142,7 @@ fn a_first_boot_is_neither_dark_nor_silent() {
 }
 
 #[test]
-fn slot_state_round_trips_a_negative_utc_offset() {
+fn slot_state_round_trips_a_zone_west_of_utc() {
     let d = tmp_root();
     let s = SlotState {
         cart: None,
@@ -150,11 +151,11 @@ fn slot_state_round_trips_a_negative_utc_offset() {
         volume: 60,
         muted: false,
         clock_set: true,
-        utc_offset_min: -450,
+        zone: Zone::parse("America/St_Johns").unwrap(),
         ..SlotState::default()
     };
     write_slot_state(d.path(), &s).unwrap();
-    assert_eq!(read_slot_state(d.path()).utc_offset_min, -450);
+    assert_eq!(read_slot_state(d.path()).zone, s.zone);
 }
 
 #[test]
@@ -179,7 +180,12 @@ fn a_line_the_reader_does_not_know_is_skipped() {
             s.volume,
             s.muted,
             s.clock_set,
-            s.utc_offset_min
+            s.zone.offset_min(
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap()
+                    .as_secs() as i64
+            )
         ),
         (3, 1, 40, true, true, -300)
     );
@@ -217,13 +223,23 @@ fn a_card_from_before_the_settings_keeps_all_its_values() {
             cart: Some("Emerald".into()),
             cart_platform: None,
             brightness: 3,
+            dim: 0,
             blue_light: 1,
+            saturation: 0,
+            contrast: 0,
             volume: 40,
             volume_hp: 40,
             muted: true,
             muted_hp: true,
             clock_set: true,
-            utc_offset_min: -300,
+            zone: Zone::for_offset(
+                -300,
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap()
+                    .as_secs() as i64
+            ),
+            clock_24h: true,
             rumble: true,
             ff_speed: FF_SPEED_DEFAULT,
             ff_sound: false,
@@ -246,13 +262,26 @@ fn a_card_from_before_the_settings_keeps_all_its_values() {
             show_titles: false,
             left_stick_dpad: true,
             lid_off_min: None,
+            wifi_off: false,
+            network_time: false,
             bezel_gba: BezelPick::Ags102,
             bezel_gb: BezelPick::Ags102,
             bezel_gbc: BezelPick::Ags102,
+            scale_gba: Scale::Fit,
+            scale_gb: Scale::SpFrame,
+            scale_gbc: Scale::SpFrame,
+            stretch_gb: Stretch::Classic,
+            stretch_gbc: Stretch::Classic,
+            blending_gba: Blending::Off,
+            blending_gb: Blending::Off,
+            blending_gbc: Blending::Off,
+            gb_core: Core::Mgba,
             recents: Vec::new(),
             favorites: Vec::new(),
             shelf: None,
             shelf_cart: None,
+            shelf_mode: slot_store::ShelfMode::All,
+            collection: None,
         }
     );
 }
@@ -263,7 +292,7 @@ fn the_quick_menu_settings_round_trip_as_their_own_lines() {
     let s = SlotState {
         clock_set: true,
         rumble: false,
-        ff_speed: 2,
+        ff_speed: 8,
         ff_sound: true,
         colour_correction_gba: true,
         colour_correction_gb: false,
@@ -277,10 +306,14 @@ fn the_quick_menu_settings_round_trip_as_their_own_lines() {
         gb_palette: GbPalette::parse("GBC Dark Green →A").unwrap(),
         wallpaper_tint: WallpaperTint::Medium,
         colour_correction_gbc: true,
-        shader_gbc: Shader::Grid,
+        shader_gbc: Shader::Shimmerless,
+        saturation: 4,
+        contrast: 7,
         bezel_gba: BezelPick::None,
         bezel_gb: BezelPick::Default,
         bezel_gbc: BezelPick::File("Pocket.png".into()),
+        blending_gba: Blending::Ghosting,
+        blending_gb: Blending::Mix,
         shelf: Some("gba".into()),
         shelf_cart: Some(Recent {
             platform: Platform::Gba,
@@ -311,7 +344,12 @@ fn the_quick_menu_settings_round_trip_as_their_own_lines() {
         "bezel_gb=default",
         "bezel_gbc=Pocket.png",
         "colour_correction_gbc=1",
-        "shader_gbc=grid",
+        "shader_gbc=shimmerless",
+        "saturation=4",
+        "contrast=7",
+        "blending_gba=ghosting",
+        "blending_gb=mix",
+        "blending_gbc=off",
         "shelf=gba",
         "shelf_cart=gba/Drill Dozer",
     ] {
@@ -339,7 +377,8 @@ fn a_card_that_still_carries_run_ahead_keeps_the_rest_of_its_values() {
 
 #[test]
 fn every_speed_the_row_offers_round_trips_as_its_own_number() {
-    for speed in FF_SPEEDS {
+    assert_eq!(FF_SPEEDS, [0, 6, 8, 12, 16, 24]);
+    for (speed, written) in FF_SPEEDS.into_iter().zip(["0", "1.5", "2", "3", "4", "6"]) {
         let d = tmp_root();
         let s = SlotState {
             clock_set: true,
@@ -347,26 +386,45 @@ fn every_speed_the_row_offers_round_trips_as_its_own_number() {
             ..SlotState::default()
         };
         write_slot_state(d.path(), &s).unwrap();
-        assert_eq!(read_slot_state(d.path()), s, "{speed}x did not come back");
+        assert_eq!(read_slot_state(d.path()), s, "{written}x did not come back");
         let text = std::fs::read_to_string(d.path().join("Config/slot.state")).unwrap();
-        let want = format!("ff_speed={speed}");
+        let want = format!("ff_speed={written}");
         assert!(text.lines().any(|l| l == want), "no {want} in {text:?}");
     }
 }
 
 #[test]
 fn an_older_build_reads_the_new_speed_as_its_own_default() {
-    for speed in FF_SPEEDS.iter().filter(|&&n| n > 4) {
-        assert!(
-            !(2..=4).contains(speed),
-            "{speed}x is inside the range an older build accepts, so it would read as a speed"
-        );
-    }
+    assert!(
+        "1.5".parse::<u8>().is_err(),
+        "1.5x parses as a whole number, so an older build would read it as a speed"
+    );
     assert_eq!(SlotState::default().ff_speed, FF_SPEED_DEFAULT);
     assert!(
         FF_SPEEDS.contains(&FF_SPEED_DEFAULT),
         "the default is not one of the speeds the row offers"
     );
+}
+
+#[test]
+fn a_saturation_or_contrast_the_rows_do_not_offer_reads_as_off_and_keeps_the_rest() {
+    let d = tmp_root();
+    let known = "cart=Emerald\nbrightness=3\nblue_light=1\nvolume=40\nmuted=0\nclock_set=1\nutc_offset_min=0\n";
+    for bad in [
+        "saturation=10\ncontrast=10\n",
+        "saturation=-1\ncontrast=-1\n",
+        "saturation=on\ncontrast=on\n",
+        "saturation=\ncontrast=\n",
+    ] {
+        std::fs::write(d.path().join("Config/slot.state"), format!("{known}{bad}")).unwrap();
+        let s = read_slot_state(d.path());
+        assert_eq!((s.saturation, s.contrast), (0, 0), "accepted {bad:?}");
+        assert_eq!(
+            (s.cart.as_deref(), s.brightness, s.volume),
+            (Some("Emerald"), 3, 40),
+            "{bad:?} took the rest of the card with it"
+        );
+    }
 }
 
 #[test]
@@ -387,6 +445,10 @@ fn an_out_of_range_setting_falls_back_to_its_default() {
         "ff_speed=7\n",
         "ff_speed=8\n",
         "ff_speed=255\n",
+        "ff_speed=1.25\n",
+        "ff_speed=1.75\n",
+        "ff_speed=2.0\n",
+        "ff_speed=24\n",
     ] {
         std::fs::write(d.path().join("Config/slot.state"), format!("{known}{bad}")).unwrap();
         let s = read_slot_state(d.path());
@@ -604,4 +666,75 @@ fn lid_power_off_minutes_round_trip_and_drop_a_value_the_menu_does_not_offer() {
         .replace("lid_off_min=30", "lid_off_min=7");
     std::fs::write(&path, text).unwrap();
     assert_eq!(read_slot_state(d.path()).lid_off_min, None);
+}
+
+#[test]
+fn scale_and_stretch_round_trip_and_fall_back() {
+    let d = tmp_root();
+    let s = SlotState {
+        scale_gba: Scale::FullScreen,
+        scale_gb: Scale::Integer,
+        scale_gbc: Scale::Fit,
+        stretch_gb: Stretch::FullScreen,
+        stretch_gbc: Stretch::Classic,
+        ..SlotState::default()
+    };
+    write_slot_state(d.path(), &s).unwrap();
+    assert_eq!(read_slot_state(d.path()), s);
+    let path = d.path().join("Config/slot.state");
+    let text = std::fs::read_to_string(&path).unwrap();
+    for line in [
+        "scale_gba=full-screen",
+        "scale_gb=integer",
+        "scale_gbc=fit",
+        "stretch_gb=full-screen",
+        "stretch_gbc=classic",
+    ] {
+        assert!(text.lines().any(|l| l == line), "{line} missing");
+    }
+    let broken = text
+        .replace("scale_gb=integer", "scale_gb=huge")
+        .replace("stretch_gb=full-screen", "stretch_gb=");
+    std::fs::write(&path, broken).unwrap();
+    let back = read_slot_state(d.path());
+    assert_eq!(
+        (back.scale_gb, back.stretch_gb, back.scale_gba),
+        (Scale::SpFrame, Stretch::Classic, Scale::FullScreen)
+    );
+    assert_eq!(Scale::SpFrame.name(), "sp-frame");
+    assert_eq!(Scale::parse("sp-frame"), Some(Scale::SpFrame));
+    assert_eq!(Scale::parse("default"), None);
+}
+
+#[test]
+fn a_frame_blending_the_rows_do_not_offer_reads_as_off() {
+    let d = tmp_root();
+    let s = SlotState {
+        clock_set: true,
+        blending_gba: Blending::Mix,
+        blending_gb: Blending::Mix,
+        blending_gbc: Blending::Ghosting,
+        ..SlotState::default()
+    };
+    write_slot_state(d.path(), &s).unwrap();
+    let path = d.path().join("Config/slot.state");
+    let text = std::fs::read_to_string(&path).unwrap();
+    std::fs::write(
+        &path,
+        text.replace("blending_gba=mix", "blending_gba=lcd_ghosting_fast")
+            .replace("blending_gb=mix", "blending_gb=9"),
+    )
+    .unwrap();
+    let read = read_slot_state(d.path());
+    assert_eq!(read.blending_gba, Blending::Off);
+    assert_eq!(read.blending_gb, Blending::Off);
+    assert_eq!(
+        read.blending_gbc,
+        Blending::Ghosting,
+        "a good line was thrown away with the bad ones"
+    );
+    assert!(
+        read.clock_set,
+        "the rest of the card was thrown away with it"
+    );
 }

@@ -1,7 +1,7 @@
 use slot_input::RawEvent::{Down, Up};
 use slot_input::{
-    Action::*, Btn, Btn::*, Chord, Gestures, Mod, RawEvent, MENU_HOLD_MS, POWER_HOLD_MS,
-    SELECT_CHORD_MS, SELECT_TAP_MS, VOLUME_REPEAT_DELAY_MS, VOLUME_REPEAT_MS,
+    Action::*, Btn, Btn::*, Chord, Context, Gestures, Mod, RawEvent, MENU_HOLD_MS, POWER_HOLD_MS,
+    SELECT_CHORD_MS, SELECT_HOLD_MS, SELECT_TAP_MS, VOLUME_REPEAT_DELAY_MS, VOLUME_REPEAT_MS,
 };
 
 fn today() -> Vec<(Chord, slot_input::Action)> {
@@ -251,6 +251,78 @@ fn r2_double_tap_latches_and_single_press_clears() {
     assert!(g.feed(Up(R2), 150).is_empty());
     g.feed(Down(R2), 5000);
     assert_eq!(g.feed(Up(R2), 5050), vec![FfStop]);
+}
+
+fn with_toggle() -> Gestures {
+    let mut g = gestures();
+    let mut shortcuts = today();
+    shortcuts.push((
+        Chord {
+            modifier: None,
+            button: R1,
+        },
+        FfToggle,
+    ));
+    g.set_shortcuts(shortcuts);
+    g
+}
+
+#[test]
+fn a_toggle_press_starts_fast_forward_and_the_next_press_stops_it() {
+    let mut g = with_toggle();
+    assert_eq!(g.feed(Down(R1), 0), vec![FfStart]);
+    assert!(
+        g.feed(Up(R1), 50).is_empty(),
+        "the release stopped the toggle"
+    );
+    assert!(g.ff_latched(), "a toggled run is not held on like a latch");
+    assert_eq!(g.feed(Down(R1), 5000), vec![FfStop]);
+    assert!(g.feed(Up(R1), 5050).is_empty());
+    assert!(!g.ff_latched());
+}
+
+#[test]
+fn the_fast_forward_button_stops_a_toggled_run() {
+    let mut g = with_toggle();
+    g.feed(Down(R1), 0);
+    g.feed(Up(R1), 50);
+    assert!(g.feed(Down(R2), 5000).is_empty());
+    assert_eq!(g.feed(Up(R2), 5050), vec![FfStop]);
+    assert_eq!(
+        g.feed(Down(R1), 6000),
+        vec![FfStart],
+        "the toggle lost its place"
+    );
+}
+
+#[test]
+fn the_toggle_stops_a_held_fast_forward() {
+    let mut g = with_toggle();
+    assert_eq!(g.feed(Down(R2), 0), vec![FfStart]);
+    assert_eq!(g.feed(Down(R1), 100), vec![FfStop]);
+    assert!(g.feed(Up(R1), 150).is_empty());
+    assert!(
+        g.feed(Up(R2), 200).is_empty(),
+        "letting go of R2 reached the game"
+    );
+}
+
+#[test]
+fn rewind_stops_a_toggled_run() {
+    let mut g = with_toggle();
+    g.feed(Down(R1), 0);
+    g.feed(Up(R1), 50);
+    assert_eq!(g.feed(Down(L2), 200), vec![FfStop, RewindStart]);
+}
+
+#[test]
+fn a_toggle_press_during_a_rewind_does_nothing() {
+    let mut g = with_toggle();
+    g.feed(Down(L2), 0);
+    assert!(g.feed(Down(R1), 50).is_empty());
+    assert!(g.feed(Up(R1), 100).is_empty());
+    assert_eq!(g.feed(Up(L2), 150), vec![RewindStop]);
+    assert!(!g.ff_latched());
 }
 
 #[test]
@@ -939,4 +1011,189 @@ fn a_press_seen_during_a_capture_leaves_nothing_behind() {
         vec![GbaDown(R1)],
         "a stale L1 completed the pair"
     );
+}
+
+#[test]
+fn select_tap_on_the_shelf() {
+    let mut g = gestures();
+    g.set_context(Context::Shelf);
+    assert!(g.feed(Down(Select), 0).is_empty());
+    assert_eq!(g.feed(Up(Select), 80), vec![GbaDown(Select), SelectTap]);
+}
+
+#[test]
+fn no_select_tap_in_game() {
+    let mut g = gestures();
+    assert!(g.feed(Down(Select), 0).is_empty());
+    assert!(!g.feed(Up(Select), 80).contains(&SelectTap));
+}
+
+#[test]
+fn a_select_combo_is_no_tap() {
+    let mut g = gestures();
+    g.set_context(Context::Shelf);
+    let mut log = g.feed(Down(Select), 0);
+    log.extend(g.feed(Down(Btn::X), 40));
+    log.extend(g.feed(Up(Btn::X), 80));
+    log.extend(g.feed(Up(Select), 120));
+    assert!(!log.contains(&SelectTap), "{log:?}");
+}
+
+#[test]
+fn a_select_hold_is_no_tap() {
+    let mut g = gestures();
+    g.set_context(Context::Shelf);
+    let mut log = g.feed(Down(Select), 0);
+    log.extend(g.tick(700));
+    log.extend(g.feed(Up(Select), 800));
+    assert!(!log.contains(&SelectTap), "{log:?}");
+}
+
+fn shelf(extra: Vec<(Chord, slot_input::Action)>) -> Gestures {
+    let mut g = Gestures::new();
+    let mut entries: Vec<slot_input::Entry> = today()
+        .into_iter()
+        .map(|(chord, action)| slot_input::Entry {
+            chord,
+            action,
+            contexts: match slot_input::anywhere(action) {
+                true => slot_input::Contexts::ALL,
+                false => slot_input::Contexts::GAME,
+            },
+        })
+        .collect();
+    entries.extend(extra.into_iter().map(|(chord, action)| slot_input::Entry {
+        chord,
+        action,
+        contexts: slot_input::Contexts::SHELF,
+    }));
+    g.set_entries(entries);
+    g.set_context(Context::Shelf);
+    g
+}
+
+fn holds(actions: &[slot_input::Action]) -> usize {
+    actions.iter().filter(|a| **a == SelectHold).count()
+}
+
+#[test]
+fn holding_select_on_the_shelf_starts_selecting() {
+    let mut g = shelf(vec![]);
+    g.feed(Down(Select), 0);
+    assert_eq!(holds(&g.tick(SELECT_HOLD_MS - 1)), 0);
+    assert_eq!(holds(&g.tick(SELECT_HOLD_MS)), 1);
+    assert_eq!(holds(&g.tick(1500)), 0);
+    assert!(!g.feed(Up(Select), 1600).contains(&SelectTap));
+}
+
+#[test]
+fn a_chord_during_the_hold_never_starts_selecting() {
+    let mut g = shelf(vec![]);
+    g.feed(Down(Select), 0);
+    assert_eq!(g.feed(Down(Btn::Up), 100), vec![BrightnessUp]);
+    g.feed(Up(Btn::Up), 150);
+    assert_eq!(holds(&g.tick(1200)), 0);
+    assert_eq!(holds(&g.tick(3000)), 0);
+}
+
+#[test]
+fn a_plain_press_during_the_hold_never_starts_selecting() {
+    let mut g = shelf(vec![]);
+    g.feed(Down(Select), 0);
+    g.feed(Down(A), 300);
+    g.feed(Up(A), 350);
+    assert_eq!(holds(&g.tick(1200)), 0);
+}
+
+#[test]
+fn repeated_shoulder_taps_under_select_never_start_selecting() {
+    let mut g = shelf(vec![(
+        Chord {
+            modifier: Some(Mod::Select),
+            button: L1,
+        },
+        LoadState,
+    )]);
+    g.feed(Down(Select), 0);
+    let mut all = Vec::new();
+    for at in [100, 700, 1300] {
+        let fired = g.feed(Down(L1), at);
+        assert!(fired.contains(&LoadState), "tap at {at} gave {fired:?}");
+        all.extend(fired);
+        all.extend(g.feed(Up(L1), at + 50));
+        all.extend(g.tick(at + 100));
+    }
+    assert_eq!(holds(&all), 0);
+}
+
+#[test]
+fn a_select_tap_still_opens_the_studio() {
+    let mut g = shelf(vec![]);
+    g.feed(Down(Select), 0);
+    let up = g.feed(Up(Select), 100);
+    assert!(up.contains(&SelectTap));
+    assert_eq!(holds(&up), 0);
+    assert_eq!(holds(&g.tick(2000)), 0);
+}
+
+#[test]
+fn holding_select_in_game_never_starts_selecting() {
+    let mut g = gestures();
+    g.feed(Down(Select), 0);
+    assert_eq!(holds(&g.tick(SELECT_HOLD_MS)), 0);
+    assert_eq!(holds(&g.tick(1500)), 0);
+}
+
+fn carousel() -> Gestures {
+    let plain = |button| Chord {
+        modifier: None,
+        button,
+    };
+    shelf(vec![(plain(Y), Favorite), (plain(X), ForgetRecent)])
+}
+
+#[test]
+fn a_y_tap_favorites_on_release_and_never_holds() {
+    let mut g = carousel();
+    assert!(!g.feed(Down(Y), 0).contains(&Favorite));
+    assert!(!g.tick(200).contains(&FavoriteHold));
+    assert!(g.feed(Up(Y), 220).contains(&Favorite));
+    assert!(!g.tick(900).contains(&FavoriteHold));
+}
+
+#[test]
+fn a_y_hold_fires_once_at_485_and_never_favorites() {
+    assert_eq!(slot_input::FAVORITE_HOLD_MS, 485);
+    let mut g = carousel();
+    g.feed(Down(Y), 0);
+    assert!(!g.tick(slot_input::FAVORITE_HOLD_MS - 1).contains(&FavoriteHold));
+    assert!(g.tick(slot_input::FAVORITE_HOLD_MS).contains(&FavoriteHold));
+    assert!(!g.tick(slot_input::FAVORITE_HOLD_MS + 50).contains(&FavoriteHold));
+    assert!(!g.feed(Up(Y), 900).contains(&Favorite));
+}
+
+#[test]
+fn an_x_press_forgets_at_once_and_holds_at_450() {
+    let mut g = carousel();
+    assert!(g.feed(Down(X), 0).contains(&ForgetRecent));
+    assert!(!g.tick(449).contains(&ForgetRecentHold));
+    assert!(g.tick(450).contains(&ForgetRecentHold));
+    assert!(!g.tick(500).contains(&ForgetRecentHold));
+    assert!(!g.feed(Up(X), 900).contains(&ForgetRecent));
+}
+
+#[test]
+fn an_x_tap_never_holds() {
+    let mut g = carousel();
+    g.feed(Down(X), 0);
+    g.feed(Up(X), 120);
+    assert!(!g.tick(900).contains(&ForgetRecentHold));
+}
+
+#[test]
+fn y_in_game_is_untouched() {
+    let mut g = gestures();
+    g.set_context(Context::Game);
+    assert_eq!(g.feed(Down(Y), 0), vec![GbaDown(Y)]);
+    assert!(g.tick(slot_input::FAVORITE_HOLD_MS).is_empty());
 }

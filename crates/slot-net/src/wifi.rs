@@ -293,3 +293,57 @@ impl WifiDriver for SimWifi {
         self.renews += 1;
     }
 }
+
+/// The network slot itself joined, as `(ssid, ip)`, or `None` while it is not connected.
+static LINK: std::sync::Mutex<Option<(String, Option<String>)>> = std::sync::Mutex::new(None);
+
+/// Tells the network thread what slot's own Wi-Fi is doing. slot owns the radio; Syncthing
+/// and Tailscale follow it.
+pub fn set_link(link: Option<(String, Option<String>)>) {
+    if let Ok(mut l) = LINK.lock() {
+        *l = link;
+    }
+}
+
+/// A radio someone else drives: it reports what [`set_link`] last said and never touches the
+/// supplicant, so slot's Wi-Fi and this thread cannot fight over it.
+#[derive(Default)]
+pub struct ExternalWifi;
+
+impl WifiDriver for ExternalWifi {
+    fn start(&mut self, _conf: &str) -> Result<(), String> {
+        Ok(())
+    }
+    fn stop(&mut self) {}
+    fn alive(&mut self) -> bool {
+        true
+    }
+    fn status(&mut self) -> Option<WpaStatus> {
+        let link = LINK.lock().ok()?.clone();
+        Some(match link {
+            Some((ssid, ip)) => WpaStatus {
+                state: "COMPLETED".into(),
+                ssid: Some(ssid),
+                bssid: None,
+                ip,
+            },
+            None => WpaStatus {
+                state: "DISCONNECTED".into(),
+                ssid: None,
+                bssid: None,
+                ip: None,
+            },
+        })
+    }
+    fn scan(&mut self) -> bool {
+        false
+    }
+    fn scan_results(&mut self) -> Option<Vec<ScanResult>> {
+        None
+    }
+    fn select(&mut self, _ssid: &str) -> bool {
+        false
+    }
+    fn enable_all(&mut self) {}
+    fn renew(&mut self) {}
+}

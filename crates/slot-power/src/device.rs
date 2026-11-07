@@ -10,7 +10,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use crate::{Battery, Charge, LedState, Platform, RepairResult};
 
-const TOP_STEP: u32 = 9;
+const TOP_STEP: u32 = 10;
 
 const BACKLIGHT_FLOOR: f64 = 8.0 / 255.0;
 
@@ -29,6 +29,8 @@ const FSCK_EXFAT: &str = "fsck.exfat";
 const REPAIR_STAGE: &str = "/tmp/slot-repair";
 
 const REPAIR_RESULT: &str = "/data/slot-repair.result";
+
+const TIMEDATECTL: &str = "/usr/bin/timedatectl";
 
 const WIFI_MODULE: &str = "8821cs";
 
@@ -625,14 +627,11 @@ impl Platform for DevicePlatform {
     }
 
     fn set_clock(&mut self, secs: i64) {
-        ran(
-            "date",
-            Command::new("date").arg(format!("-s@{secs}")).status(),
-        );
-        ran(
-            "hwclock",
-            Command::new("hwclock").args(["-w", "-u"]).status(),
-        );
+        write_clock(secs);
+    }
+
+    fn set_network_time(&mut self, on: bool) {
+        std::thread::spawn(move || set_ntp(on));
     }
 
     fn relink_adb(&mut self) -> bool {
@@ -759,4 +758,31 @@ pub fn take_repair_result(file: &Path) -> Option<RepairResult> {
         "clean" => RepairResult::Clean,
         _ => RepairResult::Failed,
     })
+}
+
+fn set_ntp(on: bool) {
+    let want = if on { "yes" } else { "no" };
+    let now = Command::new(TIMEDATECTL)
+        .args(["show", "-p", "NTP", "--value"])
+        .output()
+        .ok()
+        .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string());
+    if now.as_deref() == Some(want) {
+        return;
+    }
+    ran(
+        "timedatectl set-ntp",
+        Command::new(TIMEDATECTL).args(["set-ntp", want]).status(),
+    );
+}
+
+fn write_clock(secs: i64) {
+    ran(
+        "date",
+        Command::new("date").arg(format!("-s@{secs}")).status(),
+    );
+    ran(
+        "hwclock",
+        Command::new("hwclock").args(["-w", "-u"]).status(),
+    );
 }

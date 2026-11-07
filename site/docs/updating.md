@@ -6,6 +6,27 @@ hide:
 
 # Updating slot.
 
+<details class="way" id="over-the-air" open markdown>
+<summary>Over the Air</summary>
+Make sure you are connected to Wi-Fi.
+
+From the shelf, open the menu and pick Network → Check for Updates.
+
+The OTA updater will reach out to GitHub to see if there is a new release of slot or BaseOS.
+
+If updates are available, they show up as a cart.
+
+Pick one and press <kbd>A</kbd> to download it. <kbd>B</kbd> cancels the download.
+
+When updating BaseOS, slot will check your battery level. If you are below 20% and not currently charging, you will be prompted to plug in. Press <kbd>A</kbd> to update anyway.
+
+</details>
+
+<details class="way" id="manual" markdown>
+<summary>Manual</summary>
+
+Update from your computer with the card in hand.
+
 !!! warning "Updating from a version before 1.4.0?"
 
     Older versions kept settings in `System/`. They now live in `Config/`.
@@ -21,7 +42,7 @@ hide:
 1.  Download the latest release
     { .step-title role="heading" aria-level="3" }
 
-    Go fetch the [latest slot release](https://github.com/BrandonKowalski/slot/releases/latest) from GitHub and unzip it.
+    Go fetch the [latest slot release](https://github.com/slot-cfw/slot/releases/latest) from GitHub and unzip it.
 
 2.  Replace the `System/` folder
     { .step-title role="heading" aria-level="3" }
@@ -37,3 +58,5 @@ hide:
     I hope you continue to enjoy using slot!
 
 </div>
+
+</details>

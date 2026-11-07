@@ -4,7 +4,7 @@
 use std::path::Path;
 
 use crate::draw::{Canvas, Draw};
-use crate::net_screen::{NetFace, NetFaces};
+use crate::net_pages::{PageFace, PageFaces};
 
 const W_MAX: f32 = 540.0;
 const H: f32 = 84.0;
@@ -22,7 +22,7 @@ pub fn draw_notice(
     detail: Option<&str>,
     badge: Option<&Path>,
     shown: f32,
-    faces: &NetFaces,
+    faces: &PageFaces,
     out: &mut Vec<Draw>,
 ) {
     let shown = shown.clamp(0.0, 1.0);
@@ -31,10 +31,10 @@ pub fn draw_notice(
     let x = canvas.centred(w);
     let y = (TOP + H) * eased - H;
     // Ask for every face first, so one frame requests them all.
-    let badge = badge.and_then(|p| faces.get(NetFace::Badge(p.to_path_buf())));
-    let heading = faces.get(NetFace::Small(heading.to_string()));
-    let name = faces.get(NetFace::Value(name.to_string(), true));
-    let detail = detail.and_then(|d| faces.get(NetFace::Small(d.to_string())));
+    let badge = badge.and_then(|p| faces.get(PageFace::Badge(p.to_path_buf())));
+    let heading = faces.get(PageFace::Small(heading.to_string()));
+    let name = faces.get(PageFace::Value(name.to_string(), true));
+    let detail = detail.and_then(|d| faces.get(PageFace::Small(d.to_string())));
     out.push(Draw::Rect {
         x: x - 1.0,
         y: y - 1.0,

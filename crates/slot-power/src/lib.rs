@@ -62,6 +62,9 @@ pub trait Platform: Send {
     fn root(&self) -> &Path;
     fn now(&self) -> i64;
     fn set_clock(&mut self, secs: i64);
+
+    fn set_network_time(&mut self, _on: bool) {}
+
     fn set_rumble(&mut self, strength: u16);
 
     fn relink_adb(&mut self) -> bool {

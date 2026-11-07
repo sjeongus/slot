@@ -3,7 +3,7 @@ use std::path::Path;
 use slot_gfx::{Draw, OUT_H, OUT_W};
 use slot_store::{StateEntry, RING_MAX};
 use slot_ui::{
-    hint_face, hint_width, Polaroids, Printed, DOT, HINT_H, LEGEND, PHOTO_H, PHOTO_W, PLATE_H,
+    hint_face, hint_width, Polaroids, Printed, DOT, HINT_H, LEGEND, PLATE_H,
 };
 
 fn entry(stamp: &str) -> StateEntry {
@@ -56,7 +56,7 @@ fn quads(out: &[Draw]) -> Vec<Quad> {
             Draw::Turned {
                 x, y, w, h, alpha, ..
             } => Quad { x, y, w, h, alpha },
-            Draw::Game | Draw::Shot { .. } | Draw::Capture => Quad {
+            Draw::Game | Draw::Shot { .. } | Draw::Capture | Draw::Quad { .. } | Draw::Paper { .. } => Quad {
                 x: 0.0,
                 y: 0.0,
                 w: OUT_W as f32,
@@ -93,24 +93,6 @@ fn has_hint(p: &Polaroids, out: &[Draw], key: &str) -> bool {
 }
 
 #[test]
-fn the_screenshot_fills_the_screen_at_exactly_3x() {
-    let p = switcher_with(3);
-    let out = draw(&p);
-    let photo = *quads(&out).first().expect("no screenshot drawn");
-    assert_eq!((photo.w, photo.h), (OUT_W as f32, OUT_H as f32));
-    assert_eq!((photo.x, photo.y), (0.0, 0.0));
-    assert_eq!(OUT_W / PHOTO_W, 3);
-    assert_eq!(OUT_H / PHOTO_H, 3);
-}
-
-#[test]
-fn nothing_of_the_paused_game_shows_through() {
-    let p = switcher_with(1);
-    let out = draw(&p);
-    assert_eq!(quads(&out)[0].alpha, 1.0, "the screenshot is see through");
-}
-
-#[test]
 fn there_is_one_dot_per_entry_and_exactly_one_is_selected() {
     let mut p = switcher_with(5);
     p.right();
@@ -129,9 +111,9 @@ fn there_is_one_dot_per_entry_and_exactly_one_is_selected() {
 #[test]
 fn the_title_follows_the_selection() {
     let mut p = switcher_with(3);
-    let first = p.title("2026-08-09_14-36-05");
+    let first = p.title("2026-08-09_14-36-05", true);
     p.right();
-    let second = p.title("2026-08-09_14-36-05");
+    let second = p.title("2026-08-09_14-36-05", true);
     assert_ne!(first, second, "the title did not move with the selection");
 }
 

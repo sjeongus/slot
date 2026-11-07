@@ -233,7 +233,12 @@ fn strip(canvas: Canvas, tex: TexId, alpha: f32) -> Draw {
     }
 }
 
-fn draw_slot_back(canvas: Canvas, slot: Option<(TexId, TexId)>, alpha: f32, out: &mut Vec<Draw>) {
+pub fn draw_slot_back(
+    canvas: Canvas,
+    slot: Option<(TexId, TexId)>,
+    alpha: f32,
+    out: &mut Vec<Draw>,
+) {
     if let Some((back, _)) = slot {
         out.push(strip(canvas, back, alpha));
         return;
@@ -248,7 +253,12 @@ fn draw_slot_back(canvas: Canvas, slot: Option<(TexId, TexId)>, alpha: f32, out:
     });
 }
 
-fn draw_slot_front(canvas: Canvas, slot: Option<(TexId, TexId)>, alpha: f32, out: &mut Vec<Draw>) {
+pub fn draw_slot_front(
+    canvas: Canvas,
+    slot: Option<(TexId, TexId)>,
+    alpha: f32,
+    out: &mut Vec<Draw>,
+) {
     if let Some((_, front)) = slot {
         out.push(strip(canvas, front, alpha));
         return;
@@ -300,21 +310,6 @@ pub fn slot_name_y() -> f32 {
     OUT_H as f32 - MOUTH_H - HINT_H as f32 - SLOT_NAME_GAP
 }
 
-pub fn draw_slot_name(canvas: Canvas, name: Printed, alpha: f32, out: &mut Vec<Draw>) {
-    let (Some(tex), true) = (name.face, alpha > 0.0) else {
-        return;
-    };
-    let (w, h) = (name.w as f32, HINT_H as f32);
-    out.push(Draw::Tex {
-        x: canvas.centred(w),
-        y: slot_name_y(),
-        w,
-        h,
-        tex,
-        alpha,
-    });
-}
-
 pub fn draw_slot_title(canvas: Canvas, title: Printed, alpha: f32, out: &mut Vec<Draw>) {
     let (Some(tex), true) = (title.face, alpha > 0.0) else {
         return;
@@ -330,9 +325,9 @@ pub fn draw_slot_title(canvas: Canvas, title: Printed, alpha: f32, out: &mut Vec
     });
 }
 
-pub fn draw_plugged_slot(canvas: Canvas, plugged: Option<TexId>, out: &mut Vec<Draw>) {
+pub fn draw_plugged_slot(canvas: Canvas, plugged: Option<TexId>, alpha: f32, out: &mut Vec<Draw>) {
     if let Some(tex) = plugged {
-        out.push(strip(canvas, tex, 1.0));
+        out.push(strip(canvas, tex, alpha));
     }
 }
 

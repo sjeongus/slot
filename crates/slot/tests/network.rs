@@ -1,23 +1,41 @@
+//! slot's own pages under General > Wi-Fi: Syncthing and Tailscale follow slot's Wi-Fi, and
+//! the pages read as the rest of the quick menu does.
 #![allow(clippy::field_reassign_with_default)]
 
 mod common;
 
 use std::time::{Duration, Instant};
 
-use common::{app_booting_at, app_playing_in, tmp_root_with_carts, CLOCK_IS_SET};
+use common::{app_booting_at, tmp_root_with_carts, CLOCK_IS_SET};
 use slot::app::{App, Phase};
+use slot::wifi::{Fake, Wifi};
 use slot_input::{Action, Btn};
 use slot_net::{NetConfig, NetStatus, SyncState, WifiState};
 use slot_store::{write_slot_state, SlotState};
-use slot_ui::{NetPage, QuickRow};
+use slot_ui::{QuickRow, QuickValue};
 use tempfile::TempDir;
+
+/// What slot's Wi-Fi is doing is one per process, as on the device: one app at a time.
+static SERIAL: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+fn serial() -> std::sync::MutexGuard<'static, ()> {
+    SERIAL.lock().unwrap_or_else(|e| e.into_inner())
+}
 
 fn press(a: &mut App, btn: Btn) {
     a.apply(Action::GbaDown(btn));
     a.apply(Action::GbaUp(btn));
 }
 
-fn on_shelf_with_net() -> (TempDir, App) {
+fn settle(a: &mut App) {
+    for _ in 0..4 {
+        let t = a.now();
+        a.tick_ms(t + 1_000);
+    }
+}
+
+fn on_shelf(config: NetConfig, wifi: Option<Fake>) -> (TempDir, App) {
+    slot_net::set_link(None);
     let d = tmp_root_with_carts(&["Emerald", "Fusion"]);
     write_slot_state(
         d.path(),
@@ -27,27 +45,41 @@ fn on_shelf_with_net() -> (TempDir, App) {
         },
     )
     .unwrap();
+    config.save(d.path()).unwrap();
     let (mut a, _) = app_booting_at(d.path(), CLOCK_IS_SET);
     assert!(matches!(a.phase(), Phase::Shelf), "{:?}", a.phase());
+    if let Some(fake) = wifi {
+        std::fs::write(d.path().join("Config/wifi.conf"), b"network={}\n").unwrap();
+        a.set_wifi(Wifi::inline(Box::new(fake)));
+    }
     a.set_net(slot_net::start(d.path(), None));
+    settle(&mut a);
     (d, a)
 }
 
-fn open_network(a: &mut App) {
-    a.apply(Action::QuickMenu);
-    let at = QuickRow::Network.position(&a.hidden_rows());
-    for _ in 0..at {
+fn select(a: &mut App, row: QuickRow) {
+    for _ in 0..16 {
+        if a.quick_menu() == Some(row) {
+            return;
+        }
         press(a, Btn::Down);
     }
-    assert_eq!(a.quick_menu(), Some(QuickRow::Network));
+    panic!("no {row:?} on {:?}", a.phase());
+}
+
+fn open_wifi(a: &mut App) {
+    a.apply(Action::QuickMenu);
+    select(a, QuickRow::General);
     press(a, Btn::A);
-    assert!(matches!(a.phase(), Phase::Network));
+    select(a, QuickRow::Wifi);
+    press(a, Btn::A);
+    assert_eq!(a.quick_menu(), Some(QuickRow::WifiPower));
 }
 
 fn wait(a: &mut App, what: &str, ok: impl Fn(&NetStatus) -> bool) -> NetStatus {
     let until = Instant::now() + Duration::from_secs(20);
     loop {
-        a.update(0.016);
+        settle(a);
         let s = a.net_status();
         if ok(&s) {
             return s;
@@ -58,77 +90,99 @@ fn wait(a: &mut App, what: &str, ok: impl Fn(&NetStatus) -> bool) -> NetStatus {
 }
 
 #[test]
-fn the_network_row_sits_above_about() {
-    let n = QuickRow::MAIN.len();
-    assert_eq!(QuickRow::MAIN[n - 2], QuickRow::Network);
-    assert_eq!(QuickRow::MAIN[n - 1], QuickRow::About);
-}
-
-#[test]
-fn a_model_without_wifi_hides_the_row() {
-    let d = tmp_root_with_carts(&["Emerald", "Fusion"]);
-    let (mut a, _) = app_booting_at(d.path(), CLOCK_IS_SET);
-    assert!(!a.hidden_rows().contains(&QuickRow::Network));
-    a.set_no_wifi();
-    assert!(a.hidden_rows().contains(&QuickRow::Network));
-}
-
-#[test]
-fn choosing_a_network_and_typing_its_password_joins_and_saves_it() {
-    let (d, mut a) = on_shelf_with_net();
-    open_network(&mut a);
-    wait(&mut a, "radio up", |s| s.wifi == WifiState::NoNetworks);
-    // Network row, then the list.
-    press(&mut a, Btn::Down);
-    press(&mut a, Btn::A);
-    assert_eq!(a.net_screen().page, NetPage::Networks);
-    let s = wait(&mut a, "scan", |s| !s.scan.is_empty() && !s.scanning);
-    assert_eq!(s.scan[0].ssid, "Home Wi-Fi");
-    press(&mut a, Btn::A);
-    assert!(matches!(a.net_screen().page, NetPage::Keyboard(_)));
-    // "password1": the keyboard opens on q; walk to each letter.
-    for c in "password1".chars() {
-        let kb = &a.net_screen().keyboard;
-        let (row, col) = (0..4)
-            .find_map(|r| {
-                (0..kb.row_len(r))
-                    .find(|&c2| kb.cap(r, c2) == slot_ui::NetCap::Char(c))
-                    .map(|c2| (r, c2))
-            })
-            .unwrap();
-        while a.net_screen().keyboard.row != row {
-            press(&mut a, Btn::Down);
-        }
-        while a.net_screen().keyboard.col != col {
-            press(&mut a, Btn::Right);
-        }
-        press(&mut a, Btn::A);
+fn syncthing_and_tailscale_sit_under_wifi_and_achievements_under_general() {
+    assert_eq!(
+        QuickRow::WIFI.map(QuickRow::label),
+        ["Wi-Fi", "Network", "Syncthing", "Tailscale"]
+    );
+    let general = QuickRow::GENERAL;
+    let at = |r| general.iter().position(|g| *g == r);
+    assert_eq!(
+        at(QuickRow::Wifi),
+        at(QuickRow::Achievements).map(|i| i + 1)
+    );
+    for (page, parent) in [
+        (&QuickRow::SYNCTHING[..], &QuickRow::WIFI[..]),
+        (&QuickRow::TAILSCALE, &QuickRow::WIFI),
+        (&QuickRow::ACHIEVEMENTS, &QuickRow::GENERAL),
+    ] {
+        assert_eq!(page[0].parent().map(|p| p.page()), Some(parent));
     }
-    assert_eq!(a.net_screen().keyboard.text, "password1");
-    press(&mut a, Btn::Start);
-    assert_eq!(a.net_screen().page, NetPage::Overview);
-    let s = wait(&mut a, "connected", |s| {
-        s.connected_ssid() == Some("Home Wi-Fi")
+}
+
+#[test]
+fn the_pages_open_with_no_network() {
+    let _g = serial();
+    let (_d, mut a) = on_shelf(NetConfig::default(), None);
+    open_wifi(&mut a);
+    select(&mut a, QuickRow::Tailscale);
+    press(&mut a, Btn::A);
+    assert_eq!(a.quick_menu(), Some(QuickRow::TailPower));
+    assert!(a
+        .net_texts()
+        .iter()
+        .any(|(r, t)| *r == QuickRow::TailStatus && t == "Off"));
+}
+
+#[test]
+fn syncthing_starts_once_slots_wifi_has_joined_and_switches_from_its_page() {
+    let _g = serial();
+    let mut config = NetConfig::default();
+    config.syncthing = true;
+    let (d, mut a) = on_shelf(config, Some(Fake::joined()));
+    let s = wait(
+        &mut a,
+        "joined",
+        |s| matches!(&s.wifi, WifiState::Connected { ssid, .. } if ssid == "Home"),
+    );
+    assert!(s.web_url().is_some(), "{s:?}");
+    wait(&mut a, "running", |s| {
+        matches!(s.sync, SyncState::Running { .. })
     });
-    assert_eq!(s.ip(), Some("192.168.1.42"));
-    assert_eq!(NetConfig::load(d.path()).networks[0].psk, "password1");
+
+    open_wifi(&mut a);
+    select(&mut a, QuickRow::Syncthing);
+    press(&mut a, Btn::A);
+    assert_eq!(a.quick_menu(), Some(QuickRow::SyncPower));
+    assert_eq!(a.quick_value(QuickRow::SyncPower), Some(QuickValue::On));
+    assert!(a
+        .net_texts()
+        .iter()
+        .any(|(r, t)| *r == QuickRow::SyncStatus && !t.is_empty()));
+    press(&mut a, Btn::Right);
+    wait(&mut a, "off", |s| {
+        !s.syncthing_on && s.sync == SyncState::Off
+    });
+    assert!(!NetConfig::load(d.path()).syncthing);
+
+    select(&mut a, QuickRow::SyncDevice);
+    press(&mut a, Btn::A);
+    assert!(matches!(a.phase(), Phase::NetInfo(_)), "{:?}", a.phase());
     let mut out = Vec::new();
     a.draw(&mut out);
-    assert!(!out.is_empty());
+    press(&mut a, Btn::B);
+    assert_eq!(a.quick_menu(), Some(QuickRow::SyncDevice));
 }
 
 #[test]
-fn syncthing_pauses_while_a_game_runs() {
-    let d = tmp_root_with_carts(&["Emerald"]);
-    let mut c = NetConfig::default();
-    c.syncthing = true;
-    c.remember(slot_net::Network {
-        ssid: "Coffee Shop".into(),
-        psk: String::new(),
-        hidden: false,
-    });
-    c.save(d.path()).unwrap();
-    let mut a = app_playing_in(d.path(), "Emerald");
-    a.set_net(slot_net::start(d.path(), None));
-    wait(&mut a, "paused in game", |s| s.sync == SyncState::Paused);
+fn a_model_without_wifi_hides_syncthing_and_tailscale() {
+    let _g = serial();
+    let (_d, mut a) = on_shelf(NetConfig::default(), None);
+    assert!(!a.hidden_rows().contains(&QuickRow::Syncthing));
+    a.set_no_wifi();
+    let hidden = a.hidden_rows();
+    assert!(hidden.contains(&QuickRow::Syncthing) && hidden.contains(&QuickRow::Tailscale));
+    assert!(!hidden.contains(&QuickRow::Achievements));
+}
+
+#[test]
+fn the_old_wifi_and_clock_settings_are_handed_to_slot() {
+    let _g = serial();
+    let mut config = NetConfig::default();
+    config.wifi = false;
+    config.network_time = true;
+    config.auto_timezone = true;
+    let (d, _a) = on_shelf(config, None);
+    let c = NetConfig::load(d.path());
+    assert!(c.wifi && !c.network_time && !c.auto_timezone);
 }

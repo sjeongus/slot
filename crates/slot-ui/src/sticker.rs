@@ -39,14 +39,16 @@ pub struct StickerFields<'a> {
     pub battery: Option<u8>,
     pub serial: &'a str,
     pub version: &'a str,
+    pub baseos: Option<&'a str>,
     pub model: &'a str,
 }
 
-pub const CREDITS: [&str; 11] = [
+pub const CREDITS: [&str; 12] = [
     "THE EXQUISITE SKEUOMORPHIC",
     "ARTWORK MADE BY MARKUS.",
-    "EMULATION POWERED BY MGBA",
-    "AND GPSP. UNDERLYING OS IS",
+    "EMULATION POWERED BY MGBA,",
+    "GPSP AND GAMBATTE.",
+    "UNDERLYING OS IS",
     "BASEOS BY PVAIBHAV. TYPE IS",
     "OPEN SANS AND NERD FONTS",
     "SYMBOLS BY RYAN L MCINTYRE.",
@@ -78,8 +80,10 @@ fn split_check(serial: &str) -> (&str, &str) {
     serial.split_at(at)
 }
 
-fn version_line(f: &StickerFields) -> String {
-    format!("VERSION {}", f.version)
+fn version_lines(f: &StickerFields) -> Vec<String> {
+    let mut out = vec![format!("VERSION {}", f.version)];
+    out.extend(f.baseos.map(|v| format!("BASEOS {v}")));
+    out
 }
 
 pub fn sticker_lines(f: &StickerFields) -> Vec<String> {
@@ -89,7 +93,7 @@ pub fn sticker_lines(f: &StickerFields) -> Vec<String> {
     let (body, check) = split_check(f.serial);
     out.push(format!("{body} {check}"));
     out.push(COPYRIGHT.to_string());
-    out.push(version_line(f));
+    out.extend(version_lines(f));
     out.push(HOME.to_string());
     out
 }
@@ -298,13 +302,7 @@ pub fn sticker_face(f: &StickerFields) -> UndoFace {
     c.print(sx, sy, body, SERIAL_PX, BLACK);
     let bx = sx + hash_w + 10.0;
     c.outline(bx, sy + 1.0, box_w, SERIAL_PX * 1.25, 2.0, BLACK);
-    c.print(
-        bx + box_w * 0.28,
-        sy + 2.0,
-        check,
-        SERIAL_PX * 0.85,
-        BLACK,
-    );
+    c.print(bx + box_w * 0.28, sy + 2.0, check, SERIAL_PX * 0.85, BLACK);
 
     let mut ry = panel_y as f32 + panel_h as f32 + 10.0;
     let right_edge = (panel_x + panel_w) as f32;
@@ -319,8 +317,12 @@ pub fn sticker_face(f: &StickerFields) -> UndoFace {
         );
         ry += mh as f32 + 4.0;
     }
-    let version = version_line(f);
-    for line in [COPYRIGHT, version.as_str(), HOME] {
+    let lines = [COPYRIGHT.to_string()]
+        .into_iter()
+        .chain(version_lines(f))
+        .chain([HOME.to_string()]);
+    for line in lines {
+        let line = line.as_str();
         let lw = c.print_measure(line, SMALL_PX);
         ry = c.print(right_edge - lw - 10.0, ry, line, SMALL_PX, WHITE);
     }

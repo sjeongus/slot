@@ -172,7 +172,11 @@ fn the_autosave_repeats_rather_than_firing_once() {
     a.tick_ms(300_000);
     assert_eq!(flushes.load(Ordering::Relaxed), 1);
     a.tick_ms(599_999);
-    assert_eq!(flushes.load(Ordering::Relaxed), 1, "one resume per five minutes");
+    assert_eq!(
+        flushes.load(Ordering::Relaxed),
+        1,
+        "one resume per five minutes"
+    );
     a.tick_ms(600_000);
     assert_eq!(flushes.load(Ordering::Relaxed), 2);
 }
@@ -476,4 +480,47 @@ fn a_card_the_kernel_made_read_only_raises_the_alarm_without_a_save() {
         !a.card_alarm(),
         "the alarm stayed once the card was writable"
     );
+}
+
+fn rzip(raw: &[u8]) -> Vec<u8> {
+    use std::io::Write;
+    let mut out = b"#RZIPv\x01#".to_vec();
+    out.extend_from_slice(&0x2_0000u32.to_le_bytes());
+    out.extend_from_slice(&(raw.len() as u64).to_le_bytes());
+    for chunk in raw.chunks(0x2_0000) {
+        let mut z = flate2::write::ZlibEncoder::new(Vec::new(), flate2::Compression::default());
+        z.write_all(chunk).unwrap();
+        let z = z.finish().unwrap();
+        out.extend_from_slice(&(z.len() as u32).to_le_bytes());
+        out.extend_from_slice(&z);
+    }
+    out
+}
+
+fn place_sav(root: &std::path::Path, bytes: &[u8]) -> std::path::PathBuf {
+    let dir = root.join("Saves").join("GBA");
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("Emerald.sav");
+    std::fs::write(&path, bytes).unwrap();
+    path
+}
+
+#[test]
+fn retroarch_compressed_save_reads_as_the_raw_save() {
+    let d = tempfile::tempdir().unwrap();
+    let raw: Vec<u8> = (0..0x3_0000u32).map(|i| (i % 251) as u8).collect();
+    place_sav(d.path(), &rzip(&raw));
+    assert_eq!(
+        persist::read_sav(d.path(), Platform::Gba, "Emerald").unwrap(),
+        Some(raw)
+    );
+}
+
+#[test]
+fn truncated_compressed_save_is_an_error_not_a_blank_game() {
+    let d = tempfile::tempdir().unwrap();
+    let raw = vec![7u8; 0x2_0000];
+    let whole = rzip(&raw);
+    place_sav(d.path(), &whole[..whole.len() - 4]);
+    assert!(persist::read_sav(d.path(), Platform::Gba, "Emerald").is_err());
 }

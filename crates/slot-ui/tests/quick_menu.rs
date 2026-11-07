@@ -1,6 +1,6 @@
-use slot_store::{parse_stamp, FF_SPEEDS};
+use slot_store::{parse_stamp, Zone, FF_SPEEDS};
 use slot_ui::{
-    date_time_text, quick_caret_face, quick_label_face, quick_value_face, ClockPicker, QuickRow,
+    date_time_text, quick_label_face, quick_value_face, ClockPicker, ClockRow, QuickRow,
     QuickValue, UndoFace, MENU_PAD,
 };
 
@@ -55,23 +55,25 @@ fn a_long_label_is_set_as_large_as_a_short_one() {
 }
 
 #[test]
-fn the_fast_forward_row_offers_off_and_the_four_ceilings_the_card_can_hold() {
-    assert_eq!(FF_SPEEDS, [0, 2, 3, 4, 6]);
+fn the_fast_forward_row_offers_off_a_slow_speed_and_the_four_ceilings() {
+    assert_eq!(FF_SPEEDS, [0, 6, 8, 12, 16, 24]);
     assert_eq!(
         FF_SPEEDS.map(QuickValue::speed),
         [
             Some(QuickValue::Off),
+            Some(QuickValue::Speed1_5),
             Some(QuickValue::Speed2),
             Some(QuickValue::Speed3),
             Some(QuickValue::Speed4),
             Some(QuickValue::Speed6),
         ]
     );
-    for other in [1, 5, 7, 9, 16, 28, 255] {
+    assert_eq!(QuickValue::Speed1_5.text(), "1.5×");
+    for other in [1, 2, 3, 4, 5, 7, 9, 28, 255] {
         assert_eq!(
             QuickValue::speed(other),
             None,
-            "{other}x is not a value the row has"
+            "{other} quarters is not a value the row has"
         );
     }
 }
@@ -80,7 +82,7 @@ fn the_fast_forward_row_offers_off_and_the_four_ceilings_the_card_can_hold() {
 fn the_rows_run_in_the_order_the_user_chose() {
     assert_eq!(
         QuickRow::MAIN.map(QuickRow::label),
-        ["General", "Screen", "Gameplay", "Controls", "Network", "About"]
+        ["General", "Screen", "Gameplay", "Controls", "Tools", "About"]
     );
     assert_eq!(
         QuickRow::GENERAL.map(QuickRow::label),
@@ -88,19 +90,26 @@ fn the_rows_run_in_the_order_the_user_chose() {
             "Theme",
             "Wallpaper",
             "Wallpaper Tint",
+            "Shelf Mode",
             "Recents",
             "Game Titles",
             "Lid Power Off",
+            "Achievements",
+            "Wi-Fi",
             "Date & Time"
         ]
     );
     assert_eq!(
+        QuickRow::NETWORK.map(QuickRow::label),
+        ["Gamebit", "RomM", "Fetch Missing Art", "Check for Updates"]
+    );
+    assert_eq!(
         QuickRow::CONTROL_PAGES.map(QuickRow::label),
-        ["Shelf", "Shortcuts", "In-Game"]
+        ["Shelf", "Collections", "Shortcuts", "In-Game"]
     );
     assert_eq!(
         QuickRow::SHELF_KEYS.map(QuickRow::label),
-        ["Previous Shelf", "Next Shelf", "Favorite"]
+        ["Previous Shelf", "Next Shelf", "Favorite", "Remove Recent"]
     );
     assert_eq!(
         QuickRow::SCREEN.map(QuickRow::label),
@@ -108,19 +117,40 @@ fn the_rows_run_in_the_order_the_user_chose() {
     );
     assert_eq!(
         QuickRow::SCREEN_GENERAL.map(QuickRow::label),
-        ["Brightness", "Blue Light"]
+        ["Brightness", "Blue Light", "Saturation", "Contrast"]
     );
     assert_eq!(
         QuickRow::SCREEN_GBA.map(QuickRow::label),
-        ["Shader", "Color Correction", "Bezel"]
+        [
+            "Shader",
+            "Color Correction",
+            "Frame Blending",
+            "Bezel",
+            "Scale"
+        ]
     );
     assert_eq!(
         QuickRow::SCREEN_GBC.map(QuickRow::label),
-        ["Shader", "Color Correction", "Bezel"]
+        [
+            "Shader",
+            "Color Correction",
+            "Frame Blending",
+            "Bezel",
+            "Scale",
+            "Stretch"
+        ]
     );
     assert_eq!(
         QuickRow::SCREEN_GB.map(QuickRow::label),
-        ["Shader", "Color Correction", "Palette", "Bezel"]
+        [
+            "Shader",
+            "Color Correction",
+            "Frame Blending",
+            "Palette",
+            "Bezel",
+            "Scale",
+            "Stretch"
+        ]
     );
     assert_eq!(
         QuickRow::GAME.map(QuickRow::label),
@@ -149,6 +179,7 @@ fn the_rows_run_in_the_order_the_user_chose() {
             QuickRow::Screenshots,
             QuickRow::Settings,
             QuickRow::ExitGame,
+            QuickRow::UndoReset,
             QuickRow::PlayScreen,
             QuickRow::PlayGameplay,
             QuickRow::ScreenGba,
@@ -157,13 +188,34 @@ fn the_rows_run_in_the_order_the_user_chose() {
             QuickRow::General,
             QuickRow::PlayControls,
             QuickRow::Shortcuts,
+            QuickRow::FetchArt,
             QuickRow::Controls,
             QuickRow::ControlsShelf,
+            QuickRow::ControlsCollections,
             QuickRow::ControlsInGame,
             QuickRow::ScreenGeneral,
             QuickRow::UndoSave,
             QuickRow::UndoLoad,
-            QuickRow::Network
+            QuickRow::Guide,
+            QuickRow::Network,
+            QuickRow::Wifi,
+            QuickRow::Networks,
+            QuickRow::CheckUpdates,
+            QuickRow::Server,
+            QuickRow::Romm,
+            QuickRow::RommServer,
+            QuickRow::RommPort,
+            QuickRow::RommPair,
+            QuickRow::RommDisconnect,
+            QuickRow::Syncthing,
+            QuickRow::Tailscale,
+            QuickRow::Achievements,
+            QuickRow::SyncDevice,
+            QuickRow::TailLogIn,
+            QuickRow::TailLogOut,
+            QuickRow::AchAccount,
+            QuickRow::AchSaved,
+            QuickRow::AchLogOut
         ]
     );
     for page in [
@@ -172,6 +224,11 @@ fn the_rows_run_in_the_order_the_user_chose() {
         &QuickRow::SCREEN_GENERAL[..],
         &QuickRow::GAME[..],
         &QuickRow::GENERAL[..],
+        &QuickRow::NETWORK[..],
+        &QuickRow::ROMM[..],
+        &QuickRow::SYNCTHING[..],
+        &QuickRow::TAILSCALE[..],
+        &QuickRow::ACHIEVEMENTS[..],
         &QuickRow::PLAY[..],
         &QuickRow::SETTINGS[..],
         &QuickRow::PLAY_SCREEN[..],
@@ -187,15 +244,15 @@ fn the_rows_run_in_the_order_the_user_chose() {
 
 #[test]
 fn a_hidden_row_is_stepped_over_and_takes_no_place() {
-    let hidden = [QuickRow::WallpaperTint];
-    assert_eq!(QuickRow::Wallpaper.down(&hidden), QuickRow::Recents);
-    assert_eq!(QuickRow::Recents.up(&hidden), QuickRow::Wallpaper);
-    assert_eq!(QuickRow::Theme.up(&hidden), QuickRow::DateTime);
-    assert_eq!(QuickRow::Recents.position(&hidden), 2);
+    let hidden = [QuickRow::WallpaperTint, QuickRow::DateTime];
+    assert_eq!(QuickRow::Wallpaper.down(&hidden), QuickRow::ShelfMode);
+    assert_eq!(QuickRow::ShelfMode.up(&hidden), QuickRow::Wallpaper);
+    assert_eq!(QuickRow::Theme.up(&hidden), QuickRow::Wifi);
+    assert_eq!(QuickRow::ShelfMode.position(&hidden), 2);
     assert_eq!(QuickRow::Wallpaper.down(&[]), QuickRow::WallpaperTint);
-    assert_eq!(QuickRow::Recents.position(&[]), 3);
+    assert_eq!(QuickRow::ShelfMode.position(&[]), 3);
     assert_eq!(
-        slot_ui::quick_row_top(QuickRow::Recents, &hidden)
+        slot_ui::quick_row_top(QuickRow::ShelfMode, &hidden)
             - slot_ui::quick_row_top(QuickRow::Wallpaper, &hidden),
         slot_ui::QUICK_PITCH
     );
@@ -206,6 +263,7 @@ fn the_values_read_as_the_menu_prints_them() {
     assert_eq!(
         QuickValue::ALL.map(QuickValue::text),
         [
+            "1.5×",
             "2×",
             "3×",
             "4×",
@@ -216,6 +274,7 @@ fn the_values_read_as_the_menu_prints_them() {
             "Grid",
             "Dot",
             "Simpletex",
+            "Shimmerless",
             "Dark",
             "Light",
             "Show",
@@ -239,6 +298,23 @@ fn the_values_read_as_the_menu_prints_them() {
             "7",
             "8",
             "9",
+            "10",
+            "11",
+            "12",
+            "13",
+            "14",
+            "15",
+            "SP Screen",
+            "Integer",
+            "Fit",
+            "Classic",
+            "Full Screen",
+            "Mix",
+            "Ghosting",
+            "HTTPS",
+            "HTTP",
+            "All",
+            "Collections",
             "RetroArch",
             "slot",
         ]
@@ -248,23 +324,26 @@ fn the_values_read_as_the_menu_prints_them() {
 }
 
 #[test]
-fn the_date_and_time_read_as_a_month_a_day_and_the_carousels_24_hour_clock() {
-    let at = |stamp: &str| date_time_text(parse_stamp(stamp).expect("a stamp"));
-    assert_eq!(at("2026-09-15_16-35-00"), "SEP 15 16:35");
-    assert_eq!(at("2027-01-05_04-07-59"), "JAN 5 04:07");
+fn the_date_and_time_read_as_a_month_a_day_and_the_carousels_clock() {
+    let at = |stamp: &str, h24| date_time_text(parse_stamp(stamp).expect("a stamp"), h24);
+    assert_eq!(at("2026-09-15_16-35-00", true), "SEP 15 16:35");
+    assert_eq!(at("2027-01-05_04-07-59", true), "JAN 5 04:07");
+    assert_eq!(at("2026-09-15_16-35-00", false), "SEP 15 4:35 PM");
 }
 
 #[test]
-fn a_picker_for_a_set_clock_starts_at_the_local_time_and_its_offset() {
+fn a_picker_for_a_set_clock_starts_at_the_local_time_in_its_city() {
     let utc = parse_stamp("2026-09-15_21-35-42").expect("a stamp");
-    let p = ClockPicker::local(utc, -300);
-    assert_eq!(p.offset_min(), -300);
+    let ny = Zone::parse("America/New_York").expect("New York");
+    let p = ClockPicker::new(utc, ny, true);
+    assert_eq!(p.zone(), ny);
     assert_eq!(
         p.secs(),
         utc - 42,
         "the picker does not show the minute it was opened in"
     );
-    assert!(p.text().starts_with("2026-09-15 16:35"), "{}", p.text());
+    assert_eq!(p.value_text(ClockRow::Date), "SEP 15 2026");
+    assert_eq!(p.value_text(ClockRow::Time), "17:35");
 }
 
 #[test]
@@ -282,30 +361,9 @@ fn a_value_is_grey_until_its_row_is_in_hand() {
 }
 
 #[test]
-fn the_arrows_are_faces_the_height_of_a_value() {
-    for right in [false, true] {
-        let caret = quick_caret_face(right);
-        assert!(
-            caret.w > 0 && caret.rgba.chunks(4).any(|p| p[3] > 0),
-            "an empty arrow"
-        );
-        assert_eq!(caret.h, quick_value_face("On", true).h);
-    }
-}
-
-#[test]
-fn the_two_carets_point_different_ways() {
-    assert_ne!(
-        slot_ui::quick_caret_face(false).rgba,
-        slot_ui::quick_caret_face(true).rgba,
-        "a caret glyph is missing from the symbols font"
-    );
-}
-
-#[test]
 fn the_pointer_is_a_crisp_pixel_arrow_in_the_menus_ink() {
     let p = slot_ui::quick_pointer_face();
-    assert_eq!(p.w, 32);
+    assert_eq!(p.w, 18);
     let opaque: Vec<&[u8]> = p.rgba.chunks(4).filter(|c| c[3] > 0).collect();
     assert!(!opaque.is_empty(), "an empty pointer");
     assert!(
@@ -340,8 +398,10 @@ fn the_in_game_pages_hold_their_rows_in_order() {
             QuickRow::Resume,
             QuickRow::UndoSave,
             QuickRow::UndoLoad,
+            QuickRow::UndoReset,
             QuickRow::States,
             QuickRow::Screenshots,
+            QuickRow::Guide,
             QuickRow::Settings,
             QuickRow::ExitGame
         ]
@@ -362,10 +422,15 @@ fn the_in_game_pages_hold_their_rows_in_order() {
         [
             QuickRow::Shader,
             QuickRow::Bezel,
+            QuickRow::Scale,
+            QuickRow::Stretch,
             QuickRow::Palette,
             QuickRow::ColourCorrection,
+            QuickRow::Blending,
             QuickRow::PlayBrightness,
-            QuickRow::PlayBlueLight
+            QuickRow::PlayBlueLight,
+            QuickRow::PlaySaturation,
+            QuickRow::PlayContrast
         ]
     );
     for row in QuickRow::PLAY {
@@ -427,55 +492,58 @@ fn in_game_rows_read_as_the_menu_shows_them() {
 }
 
 #[test]
-fn a_hidden_palette_and_bezel_leave_four_screen_rows() {
+fn a_hidden_palette_and_bezel_leave_nine_screen_rows() {
     let hidden = [QuickRow::Palette, QuickRow::Bezel];
     assert_eq!(
         QuickRow::Shader.shown(&hidden),
         vec![
             QuickRow::Shader,
+            QuickRow::Scale,
+            QuickRow::Stretch,
             QuickRow::ColourCorrection,
+            QuickRow::Blending,
             QuickRow::PlayBrightness,
-            QuickRow::PlayBlueLight
+            QuickRow::PlayBlueLight,
+            QuickRow::PlaySaturation,
+            QuickRow::PlayContrast
         ]
     );
-    assert_eq!(QuickRow::PlayBlueLight.down(&hidden), QuickRow::Shader);
+    assert_eq!(QuickRow::PlayContrast.down(&hidden), QuickRow::Shader);
 }
 
 #[test]
 fn the_in_game_screen_panel_shows_three_rows_and_scrolls_the_rest() {
     assert_eq!(slot_ui::quick_window(QuickRow::Shader, &[]), (0, 3));
-    assert_eq!(slot_ui::quick_window(QuickRow::Palette, &[]), (1, 3));
-    assert_eq!(
-        slot_ui::quick_window(QuickRow::ColourCorrection, &[]),
-        (2, 3)
-    );
-    assert_eq!(slot_ui::quick_window(QuickRow::PlayBlueLight, &[]), (3, 3));
+    assert_eq!(slot_ui::quick_window(QuickRow::Bezel, &[]), (0, 3));
+    assert_eq!(slot_ui::quick_window(QuickRow::Scale, &[]), (1, 3));
+    assert_eq!(slot_ui::quick_window(QuickRow::Stretch, &[]), (2, 3));
+    assert_eq!(slot_ui::quick_window(QuickRow::PlayContrast, &[]), (8, 3));
     let hidden = [QuickRow::Palette, QuickRow::Bezel];
     assert_eq!(
-        slot_ui::quick_window(QuickRow::PlayBlueLight, &hidden),
-        (1, 3)
+        slot_ui::quick_window(QuickRow::PlayContrast, &hidden),
+        (6, 3)
     );
 }
 
 #[test]
 fn a_scroll_bar_shows_only_on_a_page_with_rows_out_of_sight() {
-    let top = slot_ui::quick_scroll(QuickRow::Shader, &[]).expect("six rows in three");
+    let top = slot_ui::quick_scroll(QuickRow::Shader, &[]).expect("eleven rows in three");
     assert!(
         (top.thumb_y - top.y).abs() < 0.5,
         "the thumb is not at the top"
     );
     assert!(
-        (top.thumb_h - top.h / 6.0).abs() < 0.5,
-        "the thumb is not one row of six"
+        (top.thumb_h - top.h / 11.0).abs() < 0.5,
+        "the thumb is not one row of eleven"
     );
-    let end = slot_ui::quick_scroll(QuickRow::PlayBlueLight, &[]).expect("six rows in three");
+    let end = slot_ui::quick_scroll(QuickRow::PlayContrast, &[]).expect("eleven rows in three");
     assert!(
         (end.thumb_y + end.thumb_h - (end.y + end.h)).abs() < 0.5,
         "the thumb is not at the bottom"
     );
     assert!(
         slot_ui::quick_scroll(QuickRow::Shader, &[QuickRow::Palette, QuickRow::Bezel]).is_some(),
-        "four rows in three still scroll"
+        "nine rows in three still scroll"
     );
     assert_eq!(
         slot_ui::quick_scroll(QuickRow::Rumble, &[QuickRow::LeftStick]),
@@ -555,4 +623,111 @@ fn show_titles_sits_under_recents_on_the_general_page() {
         at(QuickRow::Recents).map(|i| i + 1)
     );
     assert_eq!(QuickRow::ShowTitles.parent(), Some(QuickRow::General));
+}
+
+#[test]
+fn fetch_legends_are_built_like_the_other_prompts() {
+    let ink = [240, 240, 232];
+    let [cancel, pick] = slot_ui::fetch_choice_legends(ink);
+    let [want_cancel, _] = slot_ui::prompt_legends(ink, "Cancel", "Start");
+    assert_eq!((cancel.w, cancel.h), (want_cancel.w, want_cancel.h));
+    assert_eq!(cancel.rgba, want_cancel.rgba);
+    assert_eq!(pick.h, cancel.h);
+    let [want_stop, _] = slot_ui::prompt_legends(ink, "Stop", "Start");
+    assert_eq!(slot_ui::fetch_legends(ink).rgba, want_stop.rgba);
+}
+
+#[test]
+fn fetch_art_sits_above_check_for_updates_on_the_network_page() {
+    assert_eq!(
+        slot_ui::QuickRow::NETWORK.last(),
+        Some(&slot_ui::QuickRow::CheckUpdates)
+    );
+    assert_eq!(slot_ui::QuickRow::NETWORK[2], slot_ui::QuickRow::FetchArt);
+    assert_eq!(slot_ui::QuickRow::FetchArt.label(), "Fetch Missing Art");
+    assert!(slot_ui::QuickRow::FetchArt.opens());
+}
+
+#[test]
+fn the_tools_page_is_centred_like_the_screen_page() {
+    for row in slot_ui::QuickRow::NETWORK {
+        assert!(row.centred(), "{row:?}");
+    }
+    assert!(!slot_ui::QuickRow::RommProtocol.centred());
+}
+
+#[test]
+fn skip_keeps_its_button_on_the_outer_edge() {
+    let ink = [240, 240, 232];
+    let [_, want] = slot_ui::prompt_legends(ink, "No", "Skip");
+    assert_eq!(slot_ui::fetch_skip_legend(ink).w, want.w);
+}
+
+#[test]
+fn server_sits_first_on_the_tools_page() {
+    assert_eq!(QuickRow::NETWORK[0], QuickRow::Server);
+    assert!(!QuickRow::MAIN.contains(&QuickRow::Server));
+    assert_eq!(QuickRow::Server.parent(), Some(QuickRow::Network));
+    assert_eq!(QuickRow::MAIN.len(), 6);
+    assert_eq!(QuickRow::NETWORK.len(), 4);
+    assert_eq!(QuickRow::Server.label(), "Gamebit");
+    assert!(QuickRow::Server.opens());
+    assert!(QuickRow::Server.page() == QuickRow::NETWORK);
+    assert!(QuickRow::ALL.contains(&QuickRow::Server));
+    assert_eq!(QuickRow::ALL[QuickRow::Server.index()], QuickRow::Server);
+}
+
+#[test]
+fn the_wifi_row_holds_its_place_when_the_rest_of_the_network_page_hides() {
+    let all = slot_ui::quick_row_top(QuickRow::WifiPower, &[]);
+    let off: Vec<QuickRow> = QuickRow::NETWORK[1..].to_vec();
+    assert_eq!(slot_ui::quick_row_top(QuickRow::WifiPower, &off), all);
+    assert_eq!(
+        slot_ui::quick_row_top(QuickRow::WifiPower, &[QuickRow::Server]),
+        all
+    );
+}
+
+#[test]
+fn the_romm_page_holds_both_sets_in_row_order() {
+    assert_eq!(QuickRow::ROMM[..5], QuickRow::ROMM_SETUP);
+    assert_eq!(QuickRow::ROMM[5..], QuickRow::ROMM_PAIRED);
+    assert_eq!(QuickRow::RommProtocol.parent(), Some(QuickRow::Romm));
+    for row in QuickRow::ROMM {
+        assert!(row.page() == QuickRow::ROMM);
+        assert_eq!(QuickRow::ALL[row.index()], row);
+    }
+    assert_eq!(QuickRow::ALL[QuickRow::Romm.index()], QuickRow::Romm);
+}
+
+#[test]
+fn collections_sits_after_shelf_in_controls() {
+    assert_eq!(
+        QuickRow::CONTROL_PAGES,
+        [
+            QuickRow::ControlsShelf,
+            QuickRow::ControlsCollections,
+            QuickRow::Shortcuts,
+            QuickRow::ControlsInGame,
+        ]
+    );
+    assert_eq!(QuickRow::ControlsCollections.label(), "Collections");
+    assert_eq!(
+        QuickRow::ControlsCollections.child(),
+        Some(QuickRow::CollPrev)
+    );
+    assert_eq!(
+        QuickRow::CollNext.parent(),
+        Some(QuickRow::ControlsCollections)
+    );
+}
+
+#[test]
+fn the_collections_page_lists_previous_and_next() {
+    let labels: Vec<&str> = QuickRow::COLLECTION_KEYS
+        .iter()
+        .map(|r| r.label())
+        .collect();
+    assert_eq!(labels, ["Previous", "Next"]);
+    assert_eq!(QuickRow::CollNext.page(), &QuickRow::COLLECTION_KEYS[..]);
 }

@@ -430,10 +430,19 @@ impl LibretroCore {
     }
 
     pub fn open_with(dylib: &Path, system_dir: &Path, save_dir: &Path) -> Result<Self, CoreError> {
+        Self::open_preset(dylib, system_dir, save_dir, &[])
+    }
+
+    pub fn open_preset(
+        dylib: &Path,
+        system_dir: &Path,
+        save_dir: &Path,
+        preset: &[(&str, &str)],
+    ) -> Result<Self, CoreError> {
         if LIVE.swap(true, Ordering::SeqCst) {
             return Err(CoreError::Unsupported("a core is already open".into()));
         }
-        Self::open_inner(dylib, system_dir, save_dir)
+        Self::open_inner(dylib, system_dir, save_dir, preset)
             .inspect_err(|_| LIVE.store(false, Ordering::SeqCst))
     }
 
@@ -486,7 +495,12 @@ impl LibretroCore {
             .map(|s| s.to_string())
     }
 
-    fn open_inner(dylib: &Path, system_dir: &Path, save_dir: &Path) -> Result<Self, CoreError> {
+    fn open_inner(
+        dylib: &Path,
+        system_dir: &Path,
+        save_dir: &Path,
+        preset: &[(&str, &str)],
+    ) -> Result<Self, CoreError> {
         let lib = unsafe { Library::new(dylib) }.map_err(|e| CoreError::Load(e.to_string()))?;
         let api = unsafe { Api::load(&lib) }?;
         let version = unsafe { (api.api_version)() };
@@ -506,7 +520,10 @@ impl LibretroCore {
             net: Link::default(),
             net_peer: None,
             audio_status: None,
-            options: std::collections::HashMap::new(),
+            options: preset
+                .iter()
+                .filter_map(|(k, v)| Some((k.to_string(), CString::new(*v).ok()?)))
+                .collect(),
             options_dirty: false,
             declared: std::collections::HashMap::new(),
             memory_map: Vec::new(),
@@ -636,6 +653,14 @@ impl RetroCore for LibretroCore {
         unsafe { (self.api.run)() };
     }
 
+    fn reset(&mut self) {
+        if !self.loaded {
+            return;
+        }
+        let _a = Active::bind(&mut self.host);
+        unsafe { (self.api.reset)() };
+    }
+
     fn set_frame_skip(&mut self, skip: bool) {
         let _a = Active::bind(&mut self.host);
         unsafe { report_audio_status(skip) };
@@ -698,6 +723,13 @@ impl RetroCore for LibretroCore {
         ram[..n].copy_from_slice(&data[..n]);
         let rest = &data[n..];
         if let Some(rtc) = self.memory_mut(MEMORY_RTC) {
+            let now = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map_or(0, |d| d.as_secs());
+            let converted = (rest.len() != rtc.len())
+                .then(|| crate::rtc::convert(rest, rtc.len(), now))
+                .flatten();
+            let rest = converted.as_deref().unwrap_or(rest);
             let m = rtc.len().min(rest.len());
             rtc[..m].copy_from_slice(&rest[..m]);
         }

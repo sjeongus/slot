@@ -9,7 +9,7 @@ use slot::frontend::Frontend;
 use slot_gfx::{Compositor, HeadlessSurface, OUT_H, OUT_W};
 use slot_input::{Btn, InputSource, Millis, RawEvent};
 use slot_power::SimPlatform;
-use slot_ui::{quick_row_top, quick_row_top_at, quick_scroll, QuickRow, QUICK_VISIBLE};
+use slot_ui::{quick_row_top, quick_row_top_at, quick_scroll, QuickRow, MOUTH_H, QUICK_VISIBLE};
 
 struct Script(VecDeque<Vec<RawEvent>>);
 
@@ -125,6 +125,7 @@ fn the_quick_menu_renders_full_screen() {
         ("general", QuickRow::General),
         ("screen", QuickRow::Screen),
         ("game", QuickRow::Game),
+        ("network", QuickRow::Network),
         ("about", QuickRow::About),
     ] {
         for _ in bar_on.position(&[])..selected.position(&[]) {
@@ -197,11 +198,11 @@ fn the_quick_menu_renders_full_screen() {
         .take(QUICK_VISIBLE)
     {
         let top = quick_row_top_at(row, QuickRow::Theme, hidden) as usize;
-        let first = *inked(&px, 56..360, top)
+        let first = *inked(&px, 40..360, top)
             .first()
             .unwrap_or_else(|| panic!("{row:?} has no label"));
         assert!(
-            (64..=68).contains(&first),
+            (53..=57).contains(&first),
             "{row:?}'s label starts at x {first}"
         );
     }
@@ -210,9 +211,12 @@ fn the_quick_menu_renders_full_screen() {
     }
     tap(&mut f, &mut input, Btn::A);
     let px = composed(&mut f, &mut c, "clock");
+    let strip = (OUT_H as f32 - MOUTH_H) as usize..OUT_H as usize;
     assert!(
-        (200..270).any(|x| at(&px, x, 298) == [0xf6, 0xf4, 0xef]),
-        "the clock from the menu does not offer B BACK"
+        strip
+            .flat_map(|y| (0..130).map(move |x| (x, y)))
+            .any(|(x, y)| at(&px, x, y).iter().all(|&c| c > 0xd0)),
+        "the clock from the menu does not offer B BACK in the footer"
     );
 }
 
@@ -250,14 +254,14 @@ fn every_fast_forward_speed_sits_on_the_rows_right_edge_and_clears_the_label() {
         );
         assert!(
             inked(&px, 350..370, top).is_empty(),
-            "{name} and its arrows reach the middle of the row"
+            "{name} reaches the middle of the row"
         );
-        let label = inked(&px, 56..350, top);
+        let label = inked(&px, 40..350, top);
         let first = *label
             .first()
             .unwrap_or_else(|| panic!("{name}: the Fast Forward row has no label"));
         assert!(
-            (64..=68).contains(&first),
+            (53..=57).contains(&first),
             "the label moved to x {first} to make room for {name}"
         );
         tap(&mut f, &mut input, Btn::Right);
@@ -298,10 +302,10 @@ fn the_game_boy_page_shows_the_palette_by_name() {
         if row != QuickRow::GbPalette {
             assert!(pointer(&px, top).is_none(), "a pointer at {row:?} as well");
         }
-        let label = inked(&px, 56..360, top);
+        let label = inked(&px, 40..360, top);
         let first = *label.first().expect("a row with no label");
         assert!(
-            (64..=68).contains(&first),
+            (53..=57).contains(&first),
             "{row:?}'s label starts at x {first}"
         );
         if row.opens() {
@@ -402,10 +406,10 @@ fn the_general_screen_page_renders() {
     );
     for row in QuickRow::SCREEN_GENERAL {
         let top = quick_row_top(row, &[]) as usize;
-        let label = inked(&px, 56..360, top);
+        let label = inked(&px, 40..360, top);
         let first = *label.first().expect("a row with no label");
         assert!(
-            (64..=68).contains(&first),
+            (53..=57).contains(&first),
             "{row:?}'s label starts at x {first}"
         );
         let value = inked(&px, 360..OUT_W as usize, top);
@@ -482,7 +486,9 @@ fn the_shortcuts_page_renders() {
         tap(&mut f, &mut input, Btn::Down);
     }
     tap(&mut f, &mut input, Btn::A);
-    tap(&mut f, &mut input, Btn::Down);
+    for _ in 0..QuickRow::Shortcuts.position(&[]) {
+        tap(&mut f, &mut input, Btn::Down);
+    }
     tap(&mut f, &mut input, Btn::A);
     assert_eq!(f.app().quick_menu(), Some(QuickRow::ScSave));
     let px = composed(&mut f, &mut c, "shortcuts");
@@ -529,7 +535,7 @@ fn the_left_stick_row_keeps_its_label_clear_of_its_value() {
     assert_eq!(f.app().quick_menu(), Some(QuickRow::LeftStick));
     let top = quick_row_top(QuickRow::LeftStick, &hidden) as usize;
     let px = composed(&mut f, &mut c, "left-stick");
-    let ink = inked(&px, 56..OUT_W as usize, top);
+    let ink = inked(&px, 40..OUT_W as usize, top);
     assert!(!ink.is_empty(), "the Left Stick row drew nothing");
     let gap = ink.windows(2).map(|w| w[1] - w[0]).max().unwrap_or(0);
     assert!(
@@ -556,7 +562,9 @@ fn a_duplicate_binding_shows_a_warning_naming_the_other_row() {
         tap(&mut f, &mut input, Btn::Down);
     }
     tap(&mut f, &mut input, Btn::A);
-    tap(&mut f, &mut input, Btn::Down);
+    for _ in 0..QuickRow::Shortcuts.position(&[]) {
+        tap(&mut f, &mut input, Btn::Down);
+    }
     tap(&mut f, &mut input, Btn::A);
     tap(&mut f, &mut input, Btn::A);
     assert!(f.app().capturing());
@@ -604,4 +612,405 @@ fn a_duplicate_binding_shows_a_warning_naming_the_other_row() {
         amber_in(width / 2..width, (y + h) as usize + 20..400) > 40,
         "no amber triangle marks the clashing rows"
     );
+}
+
+#[derive(Clone, Default)]
+struct Answers(std::sync::Arc<std::sync::Mutex<VecDeque<slot::update::UpdateEvent>>>);
+
+impl slot::update::UpdateJobs for Answers {
+    fn ask(&mut self, _job: slot::update::UpdateJob) {}
+
+    fn take(&mut self) -> Option<slot::update::UpdateEvent> {
+        self.0.lock().unwrap().pop_front()
+    }
+    fn cancel(&mut self) -> bool {
+        true
+    }
+}
+
+fn open_network(f: &mut Frontend, input: &mut Script) {
+    tap(f, input, Btn::Menu);
+    for _ in 0..QuickRow::Network.position(&[]) {
+        tap(f, input, Btn::Down);
+    }
+    tap(f, input, Btn::A);
+    assert_eq!(f.app().quick_menu(), Some(QuickRow::Server));
+}
+
+fn open_wifi(f: &mut Frontend, input: &mut Script) {
+    tap(f, input, Btn::Menu);
+    for _ in 0..QuickRow::General.position(&[]) {
+        tap(f, input, Btn::Down);
+    }
+    tap(f, input, Btn::A);
+    for _ in 0..QuickRow::Wifi.position(&f.app().hidden_rows()) {
+        tap(f, input, Btn::Down);
+    }
+    tap(f, input, Btn::A);
+    assert_eq!(f.app().quick_menu(), Some(QuickRow::WifiPower));
+}
+
+fn open_check_for_updates(f: &mut Frontend, input: &mut Script) {
+    open_network(f, input);
+    for _ in 0..QuickRow::CheckUpdates.position(&f.app().hidden_rows()) {
+        tap(f, input, Btn::Down);
+    }
+    tap(f, input, Btn::A);
+}
+
+#[test]
+fn the_tools_page_renders_centred() {
+    let Ok(surface) = HeadlessSurface::new() else {
+        return;
+    };
+    let Ok(mut c) = Compositor::new(&surface) else {
+        return;
+    };
+    let d = tmp_root_with_carts(&["Emerald", "Fusion"]);
+    clocked(d.path());
+    std::fs::write(d.path().join("Config/wifi.conf"), b"network={}\n").unwrap();
+    let mut f = Frontend::boot(Box::new(SimPlatform::at(d.path().to_path_buf())));
+    common::connect(f.app_mut());
+    f.upload_faces(&mut c);
+    let mut input = Script(VecDeque::new());
+    open_network(&mut f, &mut input);
+    let px = composed(&mut f, &mut c, "tools");
+    let hidden = f.app().hidden_rows();
+    let spans: Vec<(usize, usize)> = QuickRow::NETWORK
+        .into_iter()
+        .filter(|r| !hidden.contains(r))
+        .map(|row| {
+            let top = quick_row_top(row, &hidden) as usize;
+            let ink = inked(&px, 170..OUT_W as usize - 40, top);
+            (*ink.first().expect("a row with no label"), *ink.last().unwrap())
+        })
+        .collect();
+    let left = spans.iter().map(|s| s.0).min().unwrap();
+    let right = spans.iter().map(|s| s.1).max().unwrap();
+    for (first, _) in &spans {
+        assert!(first - left <= 3, "a label starts at x {first}, not {left}");
+    }
+    let off = (left + right) as f32 / 2.0 - OUT_W as f32 / 2.0;
+    assert!(off.abs() <= 4.0, "the column sits {off} px off centre");
+}
+
+fn ink_at(px: &[u8], xs: std::ops::Range<usize>, top: usize) -> bool {
+    !inked(px, xs, top).is_empty()
+}
+
+#[test]
+fn the_wifi_page_renders() {
+    let Ok(surface) = HeadlessSurface::new() else {
+        return;
+    };
+    let Ok(mut c) = Compositor::new(&surface) else {
+        return;
+    };
+    let d = tmp_root_with_carts(&["Emerald", "Fusion"]);
+    clocked(d.path());
+    std::fs::write(d.path().join("Config/wifi.conf"), b"network={}\n").unwrap();
+    let mut f = Frontend::boot(Box::new(SimPlatform::at(d.path().to_path_buf())));
+    common::connect(f.app_mut());
+    f.upload_faces(&mut c);
+    let mut input = Script(VecDeque::new());
+    open_wifi(&mut f, &mut input);
+    tap(&mut f, &mut input, Btn::Down);
+    assert_eq!(f.app().quick_menu(), Some(QuickRow::Networks));
+    let px = composed(&mut f, &mut c, "network-page");
+    let right = OUT_W as usize - 32;
+    for row in QuickRow::WIFI {
+        let top = quick_row_top(row, &[]) as usize;
+        let first = *inked(&px, 40..360, top)
+            .first()
+            .unwrap_or_else(|| panic!("{row:?} has no label"));
+        assert!(
+            (53..=57).contains(&first),
+            "{row:?}'s label starts at x {first}"
+        );
+        let valued = matches!(row, QuickRow::WifiPower | QuickRow::Networks);
+        assert_eq!(
+            ink_at(&px, right - 30..right, top),
+            valued,
+            "{row:?}: a value at the right edge is {}",
+            if valued { "missing" } else { "drawn" }
+        );
+    }
+    assert_eq!(f.app().networks_value(), "Home");
+    let networks = quick_row_top(QuickRow::Networks, &[]) as usize;
+    let span = inked(&px, 360..right + 4, networks);
+    assert!(
+        span.last().is_some_and(|x| x.abs_diff(right) <= 3),
+        "Home does not end at the right edge: {span:?}"
+    );
+    assert!(
+        span.first().is_some_and(|x| *x < right - 60),
+        "Home is too short to be the word: {span:?}"
+    );
+    tap(&mut f, &mut input, Btn::Up);
+    tap(&mut f, &mut input, Btn::A);
+    assert!(f.app().wifi_is_off());
+    let off = composed(&mut f, &mut c, "network-page-off");
+    let hidden = f.app().hidden_rows();
+    assert_eq!(QuickRow::WifiPower.shown(&hidden), [QuickRow::WifiPower]);
+    let wifi = quick_row_top(QuickRow::WifiPower, &[]) as usize;
+    assert!(
+        !inked(&off, 40..360, wifi).is_empty(),
+        "the Wi-Fi row moved when Wi-Fi went off"
+    );
+    for row in [QuickRow::Networks] {
+        let top = quick_row_top(row, &[]) as usize;
+        assert!(
+            inked(&off, 40..right + 4, top).is_empty(),
+            "{row:?} is still drawn with Wi-Fi off"
+        );
+    }
+}
+
+#[test]
+fn about_shows_x_restart() {
+    let Ok(surface) = HeadlessSurface::new() else {
+        return;
+    };
+    let Ok(mut c) = Compositor::new(&surface) else {
+        return;
+    };
+    let d = tmp_root_with_carts(&["Emerald", "Fusion"]);
+    clocked(d.path());
+    std::fs::write(d.path().join("Config/wifi.conf"), b"network={}\n").unwrap();
+    let mut f = Frontend::boot(Box::new(SimPlatform::at(d.path().to_path_buf())));
+    common::connect(f.app_mut());
+    f.upload_faces(&mut c);
+    let mut input = Script(VecDeque::new());
+    tap(&mut f, &mut input, Btn::Menu);
+    for _ in 0..QuickRow::About.position(&[]) {
+        tap(&mut f, &mut input, Btn::Down);
+    }
+    tap(&mut f, &mut input, Btn::A);
+    let px = composed(&mut f, &mut c, "about-restart");
+    let w = f.app().canvas().w as usize;
+    let footer = (OUT_H as f32 - MOUTH_H) as usize..OUT_H as usize;
+    let bright = |xs: std::ops::Range<usize>| {
+        footer
+            .clone()
+            .flat_map(|y| xs.clone().map(move |x| (x, y)))
+            .filter(|&(x, y)| at(&px, x, y).iter().all(|&c| c > 0xd0))
+            .count()
+    };
+    assert!(bright(0..130) > 40, "no B BACK on the left");
+    assert!(bright(w - 170..w) > 40, "no RESTART X on the right");
+    tap(&mut f, &mut input, Btn::X);
+    assert!(f.app().restarting(), "X on About did not restart");
+}
+
+fn wait(f: &mut Frontend, input: &mut Script, ms: u64) {
+    let mut now = f.app().now();
+    for _ in 0..ms / 50 {
+        now += 50;
+        f.advance_at(input, now, 0.05);
+    }
+}
+
+fn slot_release() -> slot::update::Release {
+    slot::update::Release {
+        kind: slot::update::Kind::Slot,
+        running: "1.12.0".into(),
+        version: "1.13.0".into(),
+        url: String::new(),
+        sha256: [0; 32],
+        size: 1000,
+    }
+}
+
+fn baseos_release() -> slot::update::Release {
+    slot::update::Release {
+        kind: slot::update::Kind::BaseOs,
+        running: "1.3.0".into(),
+        version: "1.4.0".into(),
+        url: String::new(),
+        sha256: [0; 32],
+        size: 1000,
+    }
+}
+
+#[test]
+fn the_baseos_update_scene_renders_beside_slot() {
+    let Ok(surface) = HeadlessSurface::new() else {
+        return;
+    };
+    let Ok(mut c) = Compositor::new(&surface) else {
+        return;
+    };
+    let d = tmp_root_with_carts(&["Emerald", "Fusion"]);
+    clocked(d.path());
+    std::fs::write(d.path().join("Config/wifi.conf"), b"network={}\n").unwrap();
+    let mut f = Frontend::boot(Box::new(SimPlatform::at(d.path().to_path_buf())));
+    common::connect(f.app_mut());
+    let answers = Answers::default();
+    f.set_update_jobs(Box::new(answers.clone()));
+    let say = |e| answers.0.lock().unwrap().push_back(e);
+    f.upload_faces(&mut c);
+    let mut input = Script(VecDeque::new());
+    tap(&mut f, &mut input, Btn::Menu);
+    open_check_for_updates(&mut f, &mut input);
+    say(slot::update::UpdateEvent::Available(vec![
+        slot_release(),
+        baseos_release(),
+    ]));
+    wait(&mut f, &mut input, 800);
+    composed(&mut f, &mut c, "update-both-slot");
+    tap(&mut f, &mut input, Btn::Right);
+    wait(&mut f, &mut input, 700);
+    composed(&mut f, &mut c, "update-both-baseos");
+    tap(&mut f, &mut input, Btn::A);
+    say(slot::update::UpdateEvent::Progress(470));
+    wait(&mut f, &mut input, 1900);
+    assert_eq!(f.app().update_progress(), Some(0.47));
+    let downloading = composed(&mut f, &mut c, "update-baseos-downloading");
+    let [r, g, b] = at(&downloading, 196, 250);
+    assert!(
+        r < 60 && g < 60 && b < 60,
+        "the open cart's back is not black: {r},{g},{b}"
+    );
+    say(slot::update::UpdateEvent::Staged);
+    wait(&mut f, &mut input, 1300);
+    composed(&mut f, &mut c, "update-baseos-seated");
+    wait(&mut f, &mut input, 1000);
+    assert!(f.app().restarting(), "a BaseOS update did not reboot");
+}
+
+#[test]
+fn the_update_scene_renders_each_moment() {
+    let Ok(surface) = HeadlessSurface::new() else {
+        return;
+    };
+    let Ok(mut c) = Compositor::new(&surface) else {
+        return;
+    };
+    let d = tmp_root_with_carts(&["Emerald", "Fusion"]);
+    clocked(d.path());
+    std::fs::write(d.path().join("Config/wifi.conf"), b"network={}\n").unwrap();
+    let mut f = Frontend::boot(Box::new(SimPlatform::at(d.path().to_path_buf())));
+    common::connect(f.app_mut());
+    let answers = Answers::default();
+    f.set_update_jobs(Box::new(answers.clone()));
+    let say = |e| answers.0.lock().unwrap().push_back(e);
+    f.upload_faces(&mut c);
+    let mut input = Script(VecDeque::new());
+    tap(&mut f, &mut input, Btn::Menu);
+    open_network(&mut f, &mut input);
+    for _ in 0..QuickRow::CheckUpdates.position(&f.app().hidden_rows()) {
+        tap(&mut f, &mut input, Btn::Down);
+    }
+    assert!(f.app().update_offered());
+    let row = composed(&mut f, &mut c, "network-updates-row");
+    tap(&mut f, &mut input, Btn::A);
+    wait(&mut f, &mut input, 400);
+    let checking = composed(&mut f, &mut c, "update-checking");
+    assert_ne!(checking, row, "checking drew nothing new");
+    say(slot::update::UpdateEvent::Available(vec![slot_release()]));
+    wait(&mut f, &mut input, 800);
+    composed(&mut f, &mut c, "update-available");
+    tap(&mut f, &mut input, Btn::A);
+    say(slot::update::UpdateEvent::Progress(470));
+    wait(&mut f, &mut input, 250);
+    composed(&mut f, &mut c, "update-opening-cart");
+    wait(&mut f, &mut input, 1250);
+    composed(&mut f, &mut c, "update-hopping");
+    wait(&mut f, &mut input, 400);
+    assert_eq!(f.app().update_progress(), Some(0.47));
+    let downloading = composed(&mut f, &mut c, "update-downloading");
+    let [r, g, b] = at(&downloading, 196, 250);
+    assert!(
+        b > g + 30 && r > g,
+        "the open cart's back is not the shell's purple: {r},{g},{b}"
+    );
+    say(slot::update::UpdateEvent::Staged);
+    wait(&mut f, &mut input, 150);
+    composed(&mut f, &mut c, "update-closing");
+    wait(&mut f, &mut input, 450);
+    composed(&mut f, &mut c, "update-seating");
+    wait(&mut f, &mut input, 300);
+    assert!(!f.app().restarting(), "restarted before the cart seated");
+    composed(&mut f, &mut c, "update-seated");
+    wait(&mut f, &mut input, 250);
+    composed(&mut f, &mut c, "update-opening");
+    wait(&mut f, &mut input, 150);
+    assert!(!f.app().relaunching(), "relaunched before the logo held");
+    composed(&mut f, &mut c, "update-logo");
+}
+
+#[test]
+fn a_cancelled_download_puts_the_carts_back_without_dropping_them() {
+    let Ok(surface) = HeadlessSurface::new() else {
+        return;
+    };
+    let Ok(mut c) = Compositor::new(&surface) else {
+        return;
+    };
+    let d = tmp_root_with_carts(&["Emerald", "Fusion"]);
+    clocked(d.path());
+    std::fs::write(d.path().join("Config/wifi.conf"), b"network={}\n").unwrap();
+    let mut f = Frontend::boot(Box::new(SimPlatform::at(d.path().to_path_buf())));
+    common::connect(f.app_mut());
+    let answers = Answers::default();
+    f.set_update_jobs(Box::new(answers.clone()));
+    let say = |e| answers.0.lock().unwrap().push_back(e);
+    f.upload_faces(&mut c);
+    let mut input = Script(VecDeque::new());
+    tap(&mut f, &mut input, Btn::Menu);
+    open_check_for_updates(&mut f, &mut input);
+    say(slot::update::UpdateEvent::Available(vec![
+        slot_release(),
+        baseos_release(),
+    ]));
+    wait(&mut f, &mut input, 800);
+    tap(&mut f, &mut input, Btn::Right);
+    tap(&mut f, &mut input, Btn::A);
+    wait(&mut f, &mut input, 1200);
+    tap(&mut f, &mut input, Btn::B);
+    say(slot::update::UpdateEvent::Cancelled);
+    let mut lowest = f32::MAX;
+    for _ in 0..30 {
+        wait(&mut f, &mut input, 50);
+        f.compose(&mut c);
+        if f.app().update_headline() {
+            let mut out = Vec::new();
+            f.app().draw(&mut out);
+            for d in &out {
+                if let slot_gfx::Draw::Turned { y, .. } = d {
+                    lowest = lowest.min(*y);
+                }
+            }
+        }
+    }
+    composed(&mut f, &mut c, "update-cancelled");
+    assert!(f.app().update_headline(), "the carts never came back");
+    assert!(
+        lowest < f32::MAX && lowest > 100.0,
+        "a cart rose to y {lowest} over the header"
+    );
+}
+
+#[test]
+fn the_tools_page_stays_shut_until_connected() {
+    let Ok(surface) = HeadlessSurface::new() else {
+        return;
+    };
+    let Ok(mut c) = Compositor::new(&surface) else {
+        return;
+    };
+    let d = tmp_root_with_carts(&["Emerald", "Fusion"]);
+    clocked(d.path());
+    std::fs::write(d.path().join("Config/wifi.conf"), b"network={}\n").unwrap();
+    let mut f = Frontend::boot(Box::new(SimPlatform::at(d.path().to_path_buf())));
+    f.upload_faces(&mut c);
+    let mut input = Script(VecDeque::new());
+    tap(&mut f, &mut input, Btn::Menu);
+    for _ in 0..QuickRow::Network.position(&[]) {
+        tap(&mut f, &mut input, Btn::Down);
+    }
+    tap(&mut f, &mut input, Btn::A);
+    assert!(!f.app().wifi_up());
+    assert_eq!(f.app().quick_menu(), Some(QuickRow::Network));
+    assert!(f.app().update_shown());
 }

@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 use std::thread::JoinHandle;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use slot_input::{Action, Btn, Chord, Contexts, Entry, Gestures, Millis, Mod, RawEvent};
 use slot_retro::Rumble;
@@ -18,6 +18,7 @@ use crate::frames::FrameRef;
 use crate::input::Pad;
 use crate::persist;
 use crate::prefetch::Prefetch;
+use crate::print_scene::Cue;
 
 pub struct Session {
     root: PathBuf,
@@ -37,6 +38,8 @@ pub struct Session {
     prefetch: Prefetch,
     reloading: bool,
     driven: bool,
+    sunlight_sent: Option<u8>,
+    buzz_ends: Option<Instant>,
 }
 
 impl Session {
@@ -63,6 +66,8 @@ impl Session {
             prefetch: Prefetch::default(),
             reloading: false,
             driven: false,
+            sunlight_sent: None,
+            buzz_ends: None,
         };
         // A game left running comes straight back. Its core loads on its own thread, so start it
         // now and let the card read overlap the rest of the boot. Waiting for the first update
@@ -84,12 +89,32 @@ impl Session {
         ring.mix(&samples);
     }
 
+    fn play_print_cue(&mut self, cue: Cue) {
+        match cue {
+            Cue::Buzz => {
+                self.play_sfx(Sfx::PrintBuzz);
+                let left = Duration::from_secs_f32(Sfx::PrintBuzz.tail());
+                self.buzz_ends = Some(Instant::now() + left);
+            }
+            Cue::Tear => self.play_sfx(Sfx::Tear),
+            Cue::BuzzOff => {
+                if self.buzz_ends.take().is_some_and(|end| Instant::now() < end) {
+                    self.sink.ring().hush();
+                }
+            }
+        }
+    }
+
     pub fn audio_queued(&self) -> usize {
         self.sink.ring().queued_frames()
     }
 
     pub fn audio_ring(&self) -> std::sync::Arc<Ring> {
         self.sink.ring()
+    }
+
+    pub fn close_audio(&mut self) {
+        self.sink.close();
     }
 
     pub fn rumble(&mut self, strength: u16) {
@@ -130,7 +155,7 @@ impl Session {
     pub fn step_emulator(&self, present: Duration, timeout: Duration) -> bool {
         self.emu.as_ref().is_some_and(|emu| {
             emu.tick(present);
-            emu.wait_frame(timeout)
+            !emu.wait_frame(timeout) && emu.locked()
         })
     }
 
@@ -175,6 +200,19 @@ impl Session {
         let latched = self.gestures.ff_latched();
         self.gestures.set_context(self.app.input_context());
         let mut entries = self.app.binding_table().entries();
+        if self.app.restart_chord() {
+            entries.insert(
+                0,
+                Entry {
+                    chord: Chord {
+                        modifier: Some(Mod::Select),
+                        button: Btn::Start,
+                    },
+                    action: Action::Restart,
+                    contexts: Contexts::ALL,
+                },
+            );
+        }
         if self.app.repair_offered() {
             let chord = Chord {
                 modifier: Some(Mod::Select),
@@ -282,6 +320,7 @@ impl Session {
 
     pub fn update(&mut self, dt: f32) {
         self.bridge_link(|app| app.update(dt));
+        self.sink.hold_open(self.app.headphones());
         if let Some(emu) = &self.emu {
             emu.set_volume(self.app.output_volume());
         }
@@ -297,7 +336,9 @@ impl Session {
         let mut recoloured = false;
         if let Some(p) = self.app.take_gb_colors() {
             if let Some(emu) = &self.emu {
-                emu.set_option("mgba_gb_colors", p.core_name());
+                for (key, value) in crate::core::palette_options(self.app.core(), p) {
+                    emu.set_option(key, value);
+                }
                 recoloured = true;
             }
         }
@@ -309,6 +350,19 @@ impl Session {
                     emu.set_option(key, value);
                     recoloured = true;
                 }
+            }
+        }
+        if let Some(blending) = self.app.take_blending() {
+            if let Some(emu) = &self.emu {
+                let (key, value) = crate::core::blend_option(self.app.core(), blending);
+                emu.set_option(key, value);
+                recoloured = true;
+            }
+        }
+        if let (Some(level), Some(emu)) = (self.app.sunlight(), &self.emu) {
+            if self.sunlight_sent != Some(level) {
+                emu.set_option(crate::core::SUNLIGHT_OPTION, &level.to_string());
+                self.sunlight_sent = Some(level);
             }
         }
         if recoloured && self.held() && !self.app.link_active() {
@@ -330,6 +384,9 @@ impl Session {
         }
         if let Some(sfx) = self.app.take_sfx() {
             self.play_sfx(sfx);
+        }
+        for cue in self.app.take_print_cues() {
+            self.play_print_cue(cue);
         }
         self.sync_core();
         self.sync_reload();
@@ -444,7 +501,7 @@ impl Session {
 
     fn sync_speed(&self) {
         if let Some(emu) = &self.emu {
-            emu.set_fast_steps(u32::from(self.app.ff_speed()));
+            emu.set_fast_quarters(u32::from(self.app.ff_speed()));
             emu.set_ff_sound(self.app.ff_sound());
             emu.set_speed(
                 if self.inserting()
@@ -494,7 +551,11 @@ impl Session {
             Some(CoreState::Loading) => {}
             Some(CoreState::Ready) => {
                 if let (true, Some(emu)) = (self.app.palette_live(), &self.emu) {
-                    emu.set_option("mgba_gb_colors", self.app.gb_colors().core_name());
+                    for (key, value) in
+                        crate::core::palette_options(self.app.core(), self.app.gb_colors())
+                    {
+                        emu.set_option(key, value);
+                    }
                 }
                 self.app.on_core_ready()
             }
@@ -514,7 +575,7 @@ impl Session {
         else {
             return;
         };
-        let core = slot_store::core_for_platform(&self.root, stem, platform);
+        let core = slot_store::core_for_platform(&self.root, stem, platform, self.app.gb_core());
         launch(&format!("opening {stem} on {}", core.as_str()));
         self.app.set_core(core);
         self.app.set_platform(platform);
@@ -527,6 +588,7 @@ impl Session {
         let player = self.app.link_player();
         let chosen = self.app.gb_colors();
         let colour = self.app.colour_correction_for(platform);
+        let blending = self.app.blending_for(platform);
         let join = std::thread::Builder::new()
             .name("slot-open".into())
             .spawn(move || {
@@ -536,7 +598,10 @@ impl Session {
                 };
                 launch("resume state read");
                 let palette = crate::core::palette_for(chosen, platform, &rom, player);
-                let opened = open_core(&root, core, platform, serial, colour, palette, player);
+                let mut opened = open_core(
+                    &root, core, platform, serial, colour, blending, palette, player,
+                );
+                crate::core::apply_game_boy_player(&mut *opened.core, core, platform, &rom);
                 launch("core opened");
                 let sav = persist::read_sav(&root, platform, &stem);
                 launch("save read");
@@ -593,6 +658,7 @@ impl Session {
         emu.set_driven(self.driven);
         self.app.set_snapshot(Box::new(emu.snapshot()));
         self.emu = Some(emu);
+        self.sunlight_sent = None;
         true
     }
 

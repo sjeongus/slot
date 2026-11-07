@@ -2,11 +2,11 @@
 
 <img src=".github/resources/banner.png" width="100%" alt="slot. A bespoke, Game Boy-centric frontend for the Anbernic RG SP.">
 
-<a href="LICENSE"><img src="https://img.shields.io/github/license/BrandonKowalski/slot?style=for-the-badge&labelColor=242429&color=4d4d57" height="36" alt="License"></a>
-<a href="https://github.com/BrandonKowalski/slot/stargazers"><img src="https://img.shields.io/github/stars/BrandonKowalski/slot?style=for-the-badge&labelColor=242429&color=4d4d57" height="36" alt="Stars"></a>
-<a href="https://github.com/BrandonKowalski/slot/releases"><img src="https://img.shields.io/github/downloads/BrandonKowalski/slot/total?style=for-the-badge&labelColor=242429&color=4d4d57" height="36" alt="Downloads"></a>
-<a href="https://slot-cfw.fyi"><img src="https://img.shields.io/badge/Guide-slot--cfw.fyi-4d4d57?style=for-the-badge&labelColor=242429" height="36" alt="Guide"></a>
-<a href="CHANGELOG.md"><img src="https://img.shields.io/badge/Changelog-4d4d57?style=for-the-badge&labelColor=242429" height="36" alt="Changelog"></a>
+<a href="LICENSE"><img src="https://img.shields.io/github/license/slot-cfw/slot?style=for-the-badge&labelColor=242429&color=4d4d57" height="36" alt="License"></a>
+<a href="https://github.com/slot-cfw/slot/stargazers"><img src="https://img.shields.io/github/stars/slot-cfw/slot?style=for-the-badge&labelColor=242429&color=4d4d57" height="36" alt="Stars"></a>
+<a href="https://github.com/slot-cfw/slot/releases"><img src="https://img.shields.io/github/downloads/slot-cfw/slot/total?style=for-the-badge&labelColor=242429&color=4d4d57" height="36" alt="Downloads"></a>
+<a href="https://slot-cfw.fyi"><img src="https://img.shields.io/badge/Guide-slot--cfw.fyi-4d4d57?style=for-the-badge&labelColor=242429" height="36" alt="Docs"></a>
+<a href="https://discord.gg/NYRWsSuPUu"><img src="https://img.shields.io/badge/Discord-4d4d57?style=for-the-badge&labelColor=242429&logo=discord&logoColor=white" height="36" alt="Discord"></a>
 
 </div>
 
@@ -14,35 +14,30 @@
 
 # About this fork
 
-This is [slot](https://github.com/BrandonKowalski/slot) with **Wi-Fi, Syncthing, Tailscale and
+This is [slot](https://github.com/slot-cfw/slot) with **Syncthing, Tailscale and
 RetroAchievements** added.
-Everything else is upstream slot, kept as close to it as possible so new releases merge in
-cleanly.
+Everything else is upstream slot, Wi-Fi included, kept as close to it as possible so new releases
+merge in cleanly.
 
 **Why it exists:** I play the same games across several devices, and I want my saves to follow
-me. Upstream slot has no way to join a Wi-Fi network; it only uses Wi-Fi for link play. So
-there's no way to sync saves without pulling the SD card. This fork adds:
+me without pulling the SD card. This fork adds:
 
-- **Settings > Network.** Scan for networks, choose one, and type its password on an on-screen
-  keyboard driven by the D-pad or stick. Saved networks reconnect whenever the device is on, and
-  hidden networks are supported.
-- **[Syncthing](https://syncthing.net)**, bundled. One switch keeps `Saves/` and `States/` in
-  step with your other devices. The device ID shows as a QR code to scan from the Syncthing app.
-  Syncing pauses while a game is running, so another device's save can't land under it.
-- **Link play still works.** Starting a link sets home Wi-Fi and Syncthing aside, and ending it
-  brings them back.
+- **[Syncthing](https://syncthing.net)**, bundled, under General > Wi-Fi. One switch keeps
+  `Saves/` and `States/` in step with your other devices. The device ID shows as a QR code to
+  scan from the Syncthing app. Syncing pauses while a game is running, so another device's save
+  can't land under it.
 - **RetroArch-compatible GBA saves and states.** Battery saves go to `Saves/mGBA/<game>.srm`, and
   states to `States/mGBA/<game>.state`, `.state1`, … and `.state.auto`, so they load in RetroArch
   on other devices and the other way round. On insert, slot resumes from the newest state,
   whichever device wrote it.
-- **Network time.** The clock sets itself over NTP. The time zone is found automatically, with
-  daylight saving followed, so state timestamps are right.
-- **[Tailscale](https://tailscale.com)**, bundled. Log in by scanning a code on screen or opening
-  its link on another device, and the handheld joins your tailnet whenever it is online.
-- **[RetroAchievements](https://retroachievements.org)**, with offline play. Log in with the
-  on-screen keyboard; unlocks pop up over the game. Offline, achievements still unlock from what
-  was saved the last time the game was played online, and are sent once you are back online.
-- **A Wi-Fi mark** beside the clock while the device is online.
+- **[Tailscale](https://tailscale.com)**, bundled, under General > Wi-Fi. Log in by scanning a
+  code on screen or opening its link on another device, and the handheld joins your tailnet
+  whenever it is online.
+- **[RetroAchievements](https://retroachievements.org)**, under General, with offline play. Log
+  in with the on-screen keyboard; unlocks pop up over the game. Offline, achievements still
+  unlock from what was saved while online, and are sent once you are back.
+- **Updates from this fork.** Tools > Check for Updates installs this fork's releases.
+- **R2 on the keyboard** flips to the symbols page.
 
 Set-up, where things are stored, and how upstream releases are merged are in
 **[FORK.md](FORK.md)**. Builds come from this repo's
@@ -50,7 +45,7 @@ Set-up, where things are stored, and how upstream releases are merged are in
 installed the same way as upstream slot.
 
 Built for the RG35XX-H. Not affiliated with or supported by the upstream author, so please file
-problems with the network features here rather than upstream.
+problems with these features here rather than upstream.
 
 ---
 
@@ -64,8 +59,6 @@ Has support for GBA, GBC, and GB titles only.
 > ROMs must be unzipped. slot does not read `.zip` or `.7z` files.
 
 A full user guide can be found at [slot-cfw.fyi](https://slot-cfw.fyi).
-
-Release notes can be found in the [changelog](CHANGELOG.md).
 
 ---
 
@@ -95,7 +88,17 @@ Release notes can be found in the [changelog](CHANGELOG.md).
 | Anbernic RG35XX-H  | Yes                                          | 1.7.0         |
 
 If you have one of the untested devices, or have tried slot on a device not listed,
-please [open an issue on GitHub](https://github.com/BrandonKowalski/slot/issues) and let me know how it went.
+please [open an issue on GitHub](https://github.com/slot-cfw/slot/issues) and let me know how it went.
+
+---
+
+# Discord Community
+
+slot has a [Discord server](https://discord.gg/NYRWsSuPUu) for questions, sharing setups, and talking about the project.
+
+It is open to everyone in the slot universe. That includes folks running or building forks of slot.
+
+There is no reason for this community to be fragmented so long as we are having fun!
 
 ---
 

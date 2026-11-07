@@ -3,6 +3,25 @@
 Releases of this fork are named after the upstream slot release they are built on, plus
 `-net.N`. Everything in upstream's [CHANGELOG.md](CHANGELOG.md) for that version is included.
 
+## [1.14.0-net.1](https://github.com/sjeongus/slot/releases/tag/v1.14.0-net.1)
+
+Based on slot [1.14.0](https://github.com/slot-cfw/slot/releases/tag/v1.14.0) and the changes
+since, which bring upstream's own Wi-Fi, Gamebit, RomM, over-the-air updates, collections, time
+zones with daylight saving, Gambatte for GB and GBC, and more: see [CHANGELOG.md](CHANGELOG.md).
+
+**Now upstream's**
+- Wi-Fi: General > Wi-Fi joins networks with upstream's keyboard, signal and lock icons. This fork's own Wi-Fi, network time, time zone and Wi-Fi mark are gone; upstream's Wi-Fi icon and Date & Time (Set Automatically) do the same jobs. Saved networks from earlier releases need joining once more.
+- Bezels: upstream's rule decides when the game moves up under a custom bezel, and handles semi-transparent screens.
+
+**Moved**
+- Syncthing and Tailscale are rows on General > Wi-Fi, each with its own page; Achievements is a row on General. The pages look like the rest of the menu, and the device ID and the Tailscale login show on a screen like RomM's pairing one.
+- Achievements can be opened, turned on and off with no network.
+
+**New**
+- Over-the-air updates come from this fork's releases (Tools > Check for Updates), never from upstream's, which would remove these features.
+- R2 flips upstream's keyboard to the symbols page and back.
+- With Achievements logged in, Tailscale on, or Syncthing's Sync In Games on, Wi-Fi stays up while a game runs; upstream turns it off then.
+
 ## [1.9.0-net.2](https://github.com/sjeongus/slot/releases/tag/v1.9.0-net.2)
 
 - Custom bezels with a semi-transparent screen, such as an LCD grid over the game, now move the game up to the screen when it is at the top, as clear ones already did. Only solid rows count as frame.

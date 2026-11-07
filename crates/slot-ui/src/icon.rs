@@ -22,10 +22,15 @@ pub enum Icon {
     Headphones,
     HeadphonesMuted,
     Camera,
+    Sunlight,
+    Backspace,
+    Return,
+    Shift,
+    Space,
 }
 
 impl Icon {
-    pub const ALL: [Icon; 13] = [
+    pub const ALL: [Icon; 18] = [
         Icon::Volume,
         Icon::VolumeZero,
         Icon::VolumeMuted,
@@ -39,6 +44,11 @@ impl Icon {
         Icon::Headphones,
         Icon::HeadphonesMuted,
         Icon::Camera,
+        Icon::Sunlight,
+        Icon::Backspace,
+        Icon::Return,
+        Icon::Shift,
+        Icon::Space,
     ];
 
     pub fn index(self) -> usize {
@@ -60,6 +70,11 @@ impl Icon {
             Icon::Headphones => '\u{f025}',
             Icon::HeadphonesMuted => '\u{f07ce}',
             Icon::Camera => '\u{f030}',
+            Icon::Sunlight => '\u{f0a72}',
+            Icon::Backspace => '\u{f0b5c}',
+            Icon::Return => '\u{f0311}',
+            Icon::Shift => '\u{f0636}',
+            Icon::Space => '\u{f1050}',
         }
     }
 }
@@ -157,24 +172,23 @@ impl Badge {
     }
 }
 
-const STAR: [&str; 9] = [
-    "....#....",
-    "...###...",
-    "...###...",
+const HEART: [&str; 8] = [
+    ".##...##.",
+    "####.####",
+    "#########",
     "#########",
     ".#######.",
     "..#####..",
-    "..#####..",
-    ".###.###.",
-    ".##...##.",
+    "...###...",
+    "....#....",
 ];
 
-pub fn star_face(scale: u32, colour: [u8; 3]) -> CartFace {
-    let (gw, gh) = (STAR[0].len() as i32, STAR.len() as i32);
+pub fn heart_face(scale: u32, colour: [u8; 3]) -> CartFace {
+    let (gw, gh) = (HEART[0].len() as i32, HEART.len() as i32);
     let ink = |x: i32, y: i32| {
         (0..gw).contains(&x)
             && (0..gh).contains(&y)
-            && STAR[y as usize].as_bytes()[x as usize] == b'#'
+            && HEART[y as usize].as_bytes()[x as usize] == b'#'
     };
     let (w, h) = ((gw + 2) as u32 * scale, (gh + 2) as u32 * scale);
     let mut rgba = vec![0u8; (w * h * 4) as usize];

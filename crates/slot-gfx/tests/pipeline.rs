@@ -1,6 +1,7 @@
 use slot_gfx::{
-    blue_light_gain, canvas_size, lcd3x_factors, lcd3x_mask, Compositor, Draw, HeadlessSurface,
-    ScreenEffect, OUT_H, OUT_W, SRC_H, SRC_W,
+    blue_light_gain, canvas_size, contrast_boost, dim_gain, game_layout, lcd3x_factors, lcd3x_mask,
+    saturation_boost, Compositor, Draw, GameLayout, HeadlessSurface, ScreenEffect, Sizing, OUT_H,
+    OUT_W, SRC_H, SRC_W,
 };
 use std::sync::{Mutex, MutexGuard, PoisonError};
 
@@ -242,41 +243,47 @@ fn a_saved_shot_is_drawn_through_the_lcd_pass() {
 }
 
 #[test]
-fn a_still_is_not_cropped_by_the_picture_mode() {
+fn a_still_is_drawn_like_the_live_picture() {
     let Some((_g, _s, mut c)) = compositor() else {
         return;
     };
-    let mut shot = flat_shot([120, 120, 120]);
-    for (x, y) in [(0, 0), (SRC_W as usize - 1, SRC_H as usize - 1)] {
-        let o = (y * SRC_W as usize + x) * 4;
-        shot[o..o + 3].copy_from_slice(&[255, 0, 0]);
+    let mut rgba = gb_shaped(|x, y| [(x * 3) as u8, (y * 5) as u8, 200], [0, 0, 0]);
+    let game = rgba.clone();
+    for p in rgba.chunks_exact_mut(4) {
+        p.swap(0, 2);
+        p[3] = 255;
     }
-    let tex = c.create_texture_nearest(SRC_W, SRC_H, &shot);
-    let src = gb_shaped(|x, y| [(x * 3) as u8, (y * 5) as u8, 200], [0, 0, 0]);
+    let tex = c.create_texture_nearest(SRC_W, SRC_H, &rgba);
+    c.set_screen_effect(ScreenEffect::None);
     c.set_screen_power(1.0);
-
-    let framed = |c: &mut Compositor, rect: [f32; 4]| {
+    for (window, layout, rect) in [
+        ((720, 480), GameLayout::BAND, WHOLE),
+        ((720, 480), GameLayout::BAND, GB_RECT),
+        (
+            (640, 480),
+            game_layout((640, 480), (160, 144), Sizing::Integer),
+            GB_RECT,
+        ),
+        (
+            (640, 480),
+            game_layout((640, 480), (160, 144), Sizing::Panel),
+            GB_RECT,
+        ),
+    ] {
+        c.fit(window);
+        c.set_game_layout(layout);
         c.set_game_source_rect(rect);
         c.begin_frame();
-        c.upload_game(&src);
-        c.draw_list(&[Draw::Shot { tex }]);
-        let still = c.read_frame();
-        c.begin_frame();
+        c.upload_game(&game);
         c.draw_game();
-        (still, c.read_frame())
-    };
-
-    let (still_actual, game_actual) = framed(&mut c, WHOLE);
-    let (still_full, game_full) = framed(&mut c, GB_RECT);
-
-    assert!(
-        still_actual == still_full,
-        "the polaroid changed shape when the panel did"
-    );
-    assert!(
-        game_actual != game_full,
-        "the game did not stretch, so this proves nothing about the still"
-    );
+        let live = c.read_frame();
+        c.begin_frame();
+        c.draw_list(&[Draw::Shot { tex }]);
+        assert!(
+            c.read_frame() == live,
+            "the still did not match the game in {window:?} {rect:?}"
+        );
+    }
 }
 
 #[test]
@@ -758,6 +765,222 @@ fn simpletex_shows_a_grey_paper_as_grey() {
     );
 }
 
+fn every_fourth_column_lit() -> Vec<u8> {
+    let mut buf = Vec::with_capacity((SRC_W * SRC_H * 4) as usize);
+    for _ in 0..SRC_H {
+        for x in 0..SRC_W {
+            let v = if x % 4 == 0 { 255 } else { 0 };
+            buf.extend_from_slice(&[v, v, v, 0]);
+        }
+    }
+    buf
+}
+
+fn column_widths(c: &mut Compositor, effect: ScreenEffect) -> Vec<f32> {
+    c.fit((640, 480));
+    c.set_game_source_rect(WHOLE);
+    c.set_screen_effect(effect);
+    c.set_screen_power(1.0);
+    c.begin_frame();
+    c.upload_game(&every_fourth_column_lit());
+    c.draw_game();
+    let (w, h) = c.frame_size();
+    let frame = c.read_frame();
+    let row = h as usize / 2;
+    let lit = |x: usize| frame[(row * w as usize + x) * 4 + 1] as f32 / 255.0;
+    let span = w as f32 / SRC_W as f32;
+    (4..SRC_W as usize - 4)
+        .step_by(4)
+        .map(|k| {
+            let from = ((k - 1) as f32 * span) as usize;
+            let to = ((k + 2) as f32 * span).ceil() as usize;
+            (from..to).map(lit).sum()
+        })
+        .collect()
+}
+
+#[test]
+fn shimmerless_gives_every_game_column_the_same_width_on_a_4_by_3_panel() {
+    let Some((_g, _s, mut c)) = compositor() else {
+        return;
+    };
+    let spread = |widths: &[f32]| {
+        let (lo, hi) = widths
+            .iter()
+            .fold((f32::MAX, f32::MIN), |(lo, hi), w| (lo.min(*w), hi.max(*w)));
+        hi - lo
+    };
+    let sharp = column_widths(&mut c, ScreenEffect::None);
+    assert!(
+        spread(&sharp) > 0.9,
+        "plain columns were already even: {sharp:?}"
+    );
+    let even = column_widths(&mut c, ScreenEffect::Shimmerless);
+    assert!(spread(&even) < 0.03, "shimmerless columns: {even:?}");
+    let want = 640.0 / SRC_W as f32;
+    assert!(
+        even.iter().all(|w| (w - want).abs() < 0.03),
+        "each column should cover {want} pixels: {even:?}"
+    );
+}
+
+#[test]
+fn shimmerless_never_blends_the_margin_into_the_picture() {
+    let Some((_g, _s, mut c)) = compositor() else {
+        return;
+    };
+    let inside = [0x40, 0x80, 0xc0];
+    let margin = [255, 0, 255];
+    c.set_game_layout(game_layout((640, 480), (160, 144), Sizing::Fit));
+    c.fit((640, 480));
+    c.set_picture([
+        GB_RECT[0],
+        GB_RECT[1],
+        GB_RECT[0] + GB_RECT[2],
+        GB_RECT[1] + GB_RECT[3],
+    ]);
+    c.set_screen_effect(ScreenEffect::Shimmerless);
+    c.set_screen_power(1.0);
+    for drift in [0.0f32, 0.15, 0.4] {
+        c.set_game_source_rect([
+            GB_RECT[0] + drift / SRC_W as f32,
+            GB_RECT[1] + drift / SRC_H as f32,
+            GB_RECT[2],
+            GB_RECT[3],
+        ]);
+        c.begin_frame();
+        c.upload_game(&gb_shaped(|_, _| inside, margin));
+        c.draw_game();
+        let frame = c.read_frame();
+        let near = |p: [u8; 3], w: [u8; 3]| p.iter().zip(w).all(|(g, w)| g.abs_diff(w) <= 1);
+        for y in 0..480 {
+            for x in 53..53 + 533 {
+                let got = at(&frame, 640, x, y);
+                assert!(
+                    near(got, inside) || near(got, margin),
+                    "drift {drift}: ({x}, {y}) is a blend, {got:?}"
+                );
+            }
+        }
+    }
+}
+
+fn graded(c: &mut Compositor, rgb: [u8; 3], saturation: u8, contrast: u8) -> [u8; 3] {
+    c.fit((OUT_W, OUT_H));
+    c.set_game_source_rect(WHOLE);
+    c.set_screen_effect(ScreenEffect::None);
+    c.set_screen_power(1.0);
+    c.set_saturation(saturation);
+    c.set_contrast(contrast);
+    c.begin_frame();
+    c.upload_game(&flat_shot([rgb[2], rgb[1], rgb[0]]));
+    c.draw_game();
+    let frame = c.read_window((OUT_W, OUT_H));
+    px(&frame, OUT_W as usize / 2, OUT_H as usize / 2)
+}
+
+#[test]
+fn each_dim_step_darkens_the_whole_screen_and_zero_leaves_it_alone() {
+    let Some((_g, _s, mut c)) = compositor() else {
+        return;
+    };
+    let rgb = [200, 160, 120];
+    let mut last = None;
+    for step in 0..=6 {
+        c.set_dim(step);
+        let got = graded(&mut c, rgb, 0, 0);
+        let want = rgb.map(|v| (f32::from(v) * dim_gain(step)).round() as u8);
+        assert!(
+            got.iter().zip(want).all(|(g, w)| g.abs_diff(w) <= 1),
+            "step {step}: {got:?}, want {want:?}"
+        );
+        if let Some(prev) = last {
+            assert!(
+                got.iter().zip(prev).all(|(g, p)| *g < p),
+                "step {step} did not darken: {got:?} after {prev:?}"
+            );
+        }
+        last = Some(got);
+    }
+    assert_eq!(dim_gain(0), 1.0);
+    assert_eq!(dim_gain(200), dim_gain(6), "step must clamp, not wrap");
+}
+
+#[test]
+fn saturation_and_contrast_off_leave_the_screen_untouched() {
+    let Some((_g, _s, mut c)) = compositor() else {
+        return;
+    };
+    for rgb in [
+        [0x80, 0x60, 0x40],
+        [0, 0, 0],
+        [255, 255, 255],
+        [0x20, 0xc0, 0x90],
+    ] {
+        let got = graded(&mut c, rgb, 0, 0);
+        assert!(
+            got.iter().zip(rgb).all(|(g, w)| g.abs_diff(w) <= 1),
+            "{rgb:?} came out {got:?}"
+        );
+    }
+}
+
+#[test]
+fn saturation_spreads_a_muted_colour_and_leaves_every_grey_alone() {
+    let Some((_g, _s, mut c)) = compositor() else {
+        return;
+    };
+    let muted = [0x90, 0x70, 0x50];
+    let spread = |p: [u8; 3]| p[0] as i32 - p[2] as i32;
+    let mut last = spread(muted);
+    for step in 1..=9 {
+        let got = graded(&mut c, muted, step, 0);
+        assert!(spread(got) > last, "step {step}: {got:?} is no richer");
+        last = spread(got);
+    }
+    for grey in [0x30, 0x80, 0xd0] {
+        let got = graded(&mut c, [grey; 3], 9, 0);
+        assert!(
+            got.iter().all(|ch| ch.abs_diff(grey) <= 1),
+            "grey {grey:#x} came out {got:?}"
+        );
+    }
+    assert_eq!(saturation_boost(0), 0.0);
+    assert_eq!(
+        saturation_boost(200),
+        saturation_boost(9),
+        "step must clamp, not wrap"
+    );
+}
+
+#[test]
+fn contrast_pushes_dark_and_light_away_from_mid_grey() {
+    let Some((_g, _s, mut c)) = compositor() else {
+        return;
+    };
+    let (mut dark, mut light) = (0x40, 0xc0);
+    for step in 1..=9 {
+        let d = graded(&mut c, [0x40; 3], 0, step)[1];
+        let l = graded(&mut c, [0xc0; 3], 0, step)[1];
+        assert!(d < dark, "step {step}: dark grey went to {d:#x}");
+        assert!(l > light, "step {step}: light grey went to {l:#x}");
+        (dark, light) = (d, l);
+    }
+    let mid = graded(&mut c, [0x80; 3], 0, 9);
+    assert!(
+        mid.iter().all(|ch| ch.abs_diff(0x80) <= 1),
+        "mid grey came out {mid:?}"
+    );
+    let colour = graded(&mut c, [0xa0, 0x40, 0x40], 0, 9);
+    assert_eq!(colour[1], colour[2], "contrast tinted {colour:?}");
+    assert_eq!(contrast_boost(0), 0.0);
+    assert_eq!(
+        contrast_boost(200),
+        contrast_boost(9),
+        "step must clamp, not wrap"
+    );
+}
+
 #[test]
 fn the_dot_shader_keeps_a_white_screen_a_little_over_half_lit() {
     let Some((_g, _s, mut c)) = compositor() else {
@@ -780,4 +1003,209 @@ fn the_dot_shader_keeps_a_white_screen_a_little_over_half_lit() {
         (0.50..0.56).contains(&mean),
         "a white cell averages {mean} under the dot shader"
     );
+}
+
+fn coded(x: usize, y: usize) -> [u8; 3] {
+    [x as u8 + 1, y as u8 + 1, 200]
+}
+
+fn at(frame: &[u8], w: u32, x: usize, y: usize) -> [u8; 3] {
+    let o = (y * w as usize + x) * 4;
+    [frame[o], frame[o + 1], frame[o + 2]]
+}
+
+fn laid_out(c: &mut Compositor, window: (u32, u32), layout: GameLayout, power: f32) -> Vec<u8> {
+    c.fit(window);
+    c.set_game_source_rect(GB_RECT);
+    c.set_screen_effect(ScreenEffect::None);
+    c.set_sp_frame(true);
+    c.set_game_layout(layout);
+    c.set_screen_power(power);
+    c.begin_frame();
+    c.upload_game(&gb_shaped(coded, [255, 0, 255]));
+    c.draw_list(&[Draw::Game]);
+    c.read_frame()
+}
+
+fn lit_box(frame: &[u8], w: u32) -> (usize, usize, usize, usize) {
+    let (mut l, mut t, mut r, mut b) = (usize::MAX, usize::MAX, 0, 0);
+    for (i, p) in frame.chunks_exact(4).enumerate() {
+        if p[2] >= 150 && p[1] >= 1 && p[0] >= 1 && p[0] <= 161 && p[1] <= 145 {
+            let (x, y) = (i % w as usize, i / w as usize);
+            (l, t, r, b) = (l.min(x), t.min(y), r.max(x), b.max(y));
+        }
+    }
+    (l, t, r, b)
+}
+
+#[test]
+fn a_panel_layout_owns_the_whole_4_by_3_panel() {
+    let Some((_g, _s, mut c)) = compositor() else {
+        return;
+    };
+    let layout = game_layout((640, 480), (160, 144), Sizing::Integer);
+    let frame = laid_out(&mut c, (640, 480), layout, 1.0);
+    assert_eq!(c.frame_size(), (640, 480));
+    assert_eq!(at(&frame, 640, 80, 24), [1, 1, 200]);
+    assert_eq!(at(&frame, 640, 559, 455), [160, 144, 200]);
+    assert_eq!(lit_box(&frame, 640), (80, 24, 559, 455));
+}
+
+#[test]
+fn a_layout_rect_holds_through_menus() {
+    let Some((_g, _s, mut c)) = compositor() else {
+        return;
+    };
+    let layout = game_layout((640, 480), (160, 144), Sizing::Integer);
+    let frame = laid_out(&mut c, (640, 480), layout, 1.0);
+    c.begin_frame();
+    c.draw_list(&[
+        Draw::Rect {
+            x: 0.0,
+            y: 0.0,
+            w: 1.0,
+            h: 1.0,
+            colour: [0.0, 0.0, 0.0, 0.0],
+        },
+        Draw::Game,
+    ]);
+    assert!(c.read_frame() == frame, "a menu moved the game");
+}
+
+#[test]
+fn power_shrinks_the_picture_inside_its_layout_rect() {
+    let Some((_g, _s, mut c)) = compositor() else {
+        return;
+    };
+    let layout = game_layout((640, 480), (160, 144), Sizing::Integer);
+    c.fit((640, 480));
+    c.set_game_layout(layout);
+    c.begin_frame();
+    c.draw_list(&[]);
+    let empty = c.read_frame();
+    let frame = laid_out(&mut c, (640, 480), layout, 0.3);
+    let (mut l, mut t, mut r, mut b) = (usize::MAX, usize::MAX, 0, 0);
+    for (i, (p, q)) in frame.chunks_exact(4).zip(empty.chunks_exact(4)).enumerate() {
+        if p[..3] != q[..3] {
+            let (x, y) = (i % 640, i / 640);
+            (l, t, r, b) = (l.min(x), t.min(y), r.max(x), b.max(y));
+        }
+    }
+    assert!(l < r && t < b, "nothing lit");
+    assert!(
+        l >= 80 && t >= 24 && r <= 559 && b <= 455,
+        "{:?}",
+        (l, t, r, b)
+    );
+    assert!((r - l, b - t) < (479, 431), "{:?}", (l, t, r, b));
+    assert!(((l + r) as i32 - (80 + 559)).abs() <= 2, "{l} {r}");
+    assert!(((t + b) as i32 - (24 + 455)).abs() <= 2, "{t} {b}");
+}
+
+#[test]
+fn the_band_layout_draws_exactly_as_before() {
+    for window in [(720, 480), (640, 480)] {
+        let before = {
+            let Some((_g, _s, mut c)) = compositor() else {
+                return;
+            };
+            c.fit(window);
+            c.set_game_source_rect(GB_RECT);
+            c.set_screen_effect(ScreenEffect::None);
+            c.set_sp_frame(true);
+            c.set_screen_power(1.0);
+            c.begin_frame();
+            c.upload_game(&gb_shaped(coded, [255, 0, 255]));
+            c.draw_list(&[Draw::Game]);
+            c.read_frame()
+        };
+        let Some((_g, _s, mut c)) = compositor() else {
+            return;
+        };
+        assert_eq!(
+            laid_out(&mut c, window, GameLayout::BAND, 1.0),
+            before,
+            "{window:?}"
+        );
+    }
+}
+
+#[test]
+fn fit_draws_the_whole_game_boy_picture_and_stays_put() {
+    let Some((_g, _s, mut c)) = compositor() else {
+        return;
+    };
+    for (panel, (x, y, w, h)) in [
+        ((720, 480), (93, 0, 533, 480)),
+        ((640, 480), (53, 0, 533, 480)),
+    ] {
+        let layout = game_layout(panel, (160, 144), Sizing::Fit);
+        let frame = laid_out(&mut c, panel, layout, 1.0);
+        assert_eq!(c.frame_size(), panel);
+        assert_eq!(at(&frame, panel.0, x, y), [1, 1, 200], "{panel:?}");
+        assert_eq!(
+            at(&frame, panel.0, x + w - 1, y + h - 1),
+            [160, 144, 200],
+            "{panel:?}"
+        );
+        assert_eq!(lit_box(&frame, panel.0), (x, y, x + w - 1, y + h - 1));
+        c.begin_frame();
+        c.draw_list(&[Draw::Game]);
+        assert!(c.read_frame() == frame, "a second frame moved the game");
+    }
+}
+
+#[test]
+fn fractional_fit_grid_lines_every_original_game_boy_pixel_evenly() {
+    let Some((_g, _s, mut c)) = compositor() else {
+        return;
+    };
+    for (panel, left) in [((640, 480), 53), ((720, 480), 93)] {
+        c.set_game_layout(game_layout(panel, (160, 144), Sizing::Fit));
+        c.fit(panel);
+        c.set_game_source_rect(GB_RECT);
+        c.set_screen_effect(ScreenEffect::Grid);
+        c.set_screen_power(1.0);
+        c.begin_frame();
+        c.upload_game(&gb_shaped(|_, _| [0xc0; 3], [0, 0, 0]));
+        c.draw_game();
+        assert_eq!(c.frame_size(), panel);
+        let frame = c.read_frame();
+        let game: Vec<u8> = frame
+            .chunks_exact(panel.0 as usize * 4)
+            .flat_map(|row| row[left * 4..(left + 533) * 4].iter().copied())
+            .collect();
+        assert_even(
+            &grid_profile(&game, 533, 480, true),
+            GB_W,
+            0.18,
+            "Fit columns",
+        );
+        assert_even(
+            &grid_profile(&game, 533, 480, false),
+            GB_H,
+            0.18,
+            "Fit rows",
+        );
+    }
+}
+
+#[test]
+fn a_still_over_a_panel_layout_leaves_no_live_game_around_it() {
+    let Some((_g, _s, mut c)) = compositor() else {
+        return;
+    };
+    for sizing in [Sizing::Fit, Sizing::Integer, Sizing::Panel] {
+        let layout = game_layout((640, 480), (160, 144), sizing);
+        laid_out(&mut c, (640, 480), layout, 1.0);
+        let still = c.create_texture_nearest(SRC_W, SRC_H, &flat_shot([10, 20, 30]));
+        c.begin_frame();
+        c.draw_list(&[Draw::Game, Draw::Shot { tex: still }]);
+        let frame = c.read_frame();
+        let live = frame
+            .chunks_exact(4)
+            .filter(|p| p[2] == 200 && p[0] >= 1 && p[1] >= 1)
+            .count();
+        assert_eq!(live, 0, "{sizing:?} left live game around the still");
+    }
 }

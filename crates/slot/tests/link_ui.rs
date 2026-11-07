@@ -514,7 +514,6 @@ fn session_playing_on_gpsp() -> (Session, TempDir, Millis) {
         &SlotState {
             cart: Some("Emerald".into()),
             clock_set: true,
-            utc_offset_min: 0,
             ..Default::default()
         },
     )
@@ -1217,7 +1216,7 @@ fn a_switch_is_refused_over_a_resume_the_core_would_not_take() {
 }
 
 #[test]
-fn pick_names_mode_and_link_across_the_strip() {
+fn pick_names_cancel_and_mode_across_the_strip() {
     let (mut app, _d) = playing_on(Core::Gpsp);
     let width = |k: LinkLegend| match k {
         LinkLegend::Cancel => hint_face("B", "Cancel").w,
@@ -1249,7 +1248,7 @@ fn pick_names_mode_and_link_across_the_strip() {
     keys.sort_by(|a, b| a.0.total_cmp(&b.0));
     assert_eq!(
         keys.iter().map(|k| k.3).collect::<Vec<_>>(),
-        [LinkLegend::Mode, LinkLegend::Link],
+        [LinkLegend::Cancel, LinkLegend::Mode],
     );
     assert!(
         keys.iter().all(|k| k.1 == OUT_H as f32 - MOUTH_H),
@@ -1260,17 +1259,17 @@ fn pick_names_mode_and_link_across_the_strip() {
     let right = x + w - HINT_EDGE as f32;
     assert!(
         left.abs() < 1.0,
-        "Mode is not on the left of the strip: {left}"
+        "Cancel is not on the left of the strip: {left}"
     );
     assert!(
         (right - OUT_W as f32).abs() < 1.0,
-        "Link is not on the right of the strip: {right}"
+        "Mode is not on the right of the strip: {right}"
     );
-    let mode_end = keys[0].0 + keys[0].2 - HINT_EDGE as f32;
-    let link_start = keys[1].0;
+    let cancel_end = keys[0].0 + keys[0].2 - HINT_EDGE as f32;
+    let mode_start = keys[1].0;
     assert!(
-        link_start - mode_end > 80.0,
-        "no gap between Mode and Link for the socket: {mode_end}..{link_start}"
+        mode_start - cancel_end > 80.0,
+        "no gap between Cancel and Mode for the socket: {cancel_end}..{mode_start}"
     );
 }
 
@@ -1383,7 +1382,6 @@ fn session_on_a_real_core() -> Option<(Session, TempDir, Millis)> {
         &SlotState {
             cart: Some("Emerald".into()),
             clock_set: true,
-            utc_offset_min: 0,
             ..Default::default()
         },
     )
@@ -1487,6 +1485,22 @@ fn a_cart_gpsp_cannot_carry_is_refused_the_link_screen_and_told_why() {
 }
 
 #[test]
+fn a_device_without_wifi_is_refused_the_link_screen_and_told_why() {
+    let d = common::tmp_root_with_carts(&["Emerald", "Zzz"]);
+    common::write_retail_header(&d, "Emerald", "POKEMON EMER", "BPEE");
+    let mut app = seated_on_gpsp(&d);
+    let wlan0 = d.path().join("net/wlan0");
+    app.set_wifi_probe(wlan0.clone());
+    app.apply(Action::GameMenu);
+    assert!(!app.game_menu_open(), "a device with no radio offered a link");
+    assert_eq!(app.toast(), Some(Toast::NoWifi));
+    assert!(matches!(app.phase(), Phase::Playing { .. }));
+    std::fs::create_dir_all(&wlan0).unwrap();
+    app.apply(Action::GameMenu);
+    assert!(app.game_menu_open(), "wlan0 arrived and the link stayed refused");
+}
+
+#[test]
 fn a_cart_gpsp_carries_still_opens_the_link_screen() {
     for (stem, title, code) in [
         ("Mario Golf", "MARIO GOLF", "BMGE"),
@@ -1542,6 +1556,15 @@ fn a_wireless_adapter_cart_on_mgba_still_says_to_switch_to_gpsp() {
 }
 
 #[test]
+fn the_link_overlay_on_gambatte_says_to_switch_to_mgba() {
+    let d = common::tmp_root_with_gb_carts(&["Pokemon Red", "Zzz"]);
+    let mut app = seated_on_platform(&d, Core::Gambatte, Platform::Gb);
+    app.apply(Action::GameMenu);
+    assert!(!app.game_menu_open(), "Gambatte opened the link overlay");
+    assert_eq!(app.toast(), Some(Toast::NeedsMgba));
+}
+
+#[test]
 fn a_game_boy_cart_links_on_mgba_and_is_refused_on_gpsp() {
     for (core, open) in [(Core::Mgba, true), (Core::Gpsp, false)] {
         let d = common::tmp_root_with_gb_carts(&["Pokemon Red", "Zzz"]);
@@ -1573,56 +1596,6 @@ fn a_game_boy_cart_links_on_mgba_and_is_refused_on_gpsp() {
         assert!(
             !app.link_active(),
             "{core:?} started a link session for a Game Boy cart"
-        );
-    }
-}
-
-#[test]
-fn the_pick_legend_names_mode_only_where_the_hardware_can_be_switched() {
-    let faces: Vec<(TexId, u32)> = LinkLegend::ALL
-        .iter()
-        .map(|k| (TexId::from_raw(900 + k.index()), 40))
-        .collect();
-    let mode = faces[LinkLegend::Mode.index()].0;
-    let drawn = |app: &App| {
-        let mut out = Vec::new();
-        app.draw(&mut out);
-        out
-    };
-
-    let (mut app, _d) = playing_on(Core::Gpsp);
-    app.set_link_legend_faces(faces.clone());
-    app.apply(Action::GameMenu);
-    assert!(
-        drawn(&app)
-            .iter()
-            .any(|d| matches!(*d, Draw::Tex { tex, .. } if tex == mode)),
-        "a cart whose hardware can be switched did not offer SELECT"
-    );
-
-    let d = common::tmp_root_with_carts(&["Zzz"]);
-    common::write_retail_header(&d, "Mario Golf", "MARIO GOLF", "BMGE");
-    let mut app = seated_on_gpsp(&d);
-    app.set_link_legend_faces(faces.clone());
-    app.apply(Action::GameMenu);
-    let out = drawn(&app);
-    assert!(
-        !out.iter()
-            .any(|d| matches!(*d, Draw::Tex { tex, .. } if tex == mode)),
-        "the screen offered SELECT over a game gpSP links the same either way"
-    );
-    let link = faces[LinkLegend::Link.index()].0;
-    assert!(
-        out.iter()
-            .any(|d| matches!(*d, Draw::Tex { tex, .. } if tex == link)),
-        "Link left the legend along with Mode"
-    );
-    for k in [LinkLegend::Cancel, LinkLegend::Swap] {
-        let gone = faces[k.index()].0;
-        assert!(
-            !out.iter()
-                .any(|d| matches!(*d, Draw::Tex { tex, .. } if tex == gone)),
-            "{k:?} is still on the pick screen"
         );
     }
 }

@@ -18,13 +18,14 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - name: Install zip, cmake and Task
+      - name: Install zip, cmake, Task and Bun
         run: |
           set -eu
           sed -i '/bullseye-security/d' /etc/apt/sources.list
           apt-get -o Acquire::Check-Valid-Until=false update
-          apt-get install -y --no-install-recommends zip cmake
+          apt-get install -y --no-install-recommends zip unzip cmake
           curl -fsSL https://taskfile.dev/install.sh | sh -s -- -b /usr/local/bin
+          curl -fsSL https://bun.sh/install | BUN_INSTALL=/usr/local bash -s "bun-v1.2.6"
 
       - name: Build the tree
         run: task dist:device OUT="slot-${GITHUB_REF_NAME}"
@@ -41,12 +42,19 @@ jobs:
           file "$out/System/bin/tailscale" | grep -q aarch64
           test -f "$out/System/licenses/rcheevos-MIT.txt"
           test -f "$out/System/slotnet.sh"
+          file "$out/System/gambatte_libretro.so" | grep -q aarch64
           test -x "$out/System/slot"
           gpsp_src_sha="$(cat vendor/gpsp-src.sha)"
           test -f "$out/System/licenses/gpsp-${gpsp_src_sha}.tar.gz"
           test -f "$out/System/licenses/gpsp-${gpsp_src_sha}.meta"
           for p in cores/gpsp/*.patch; do
             test -f "$out/System/licenses/gpsp-$(basename "$p")"
+          done
+          gambatte_src_sha="$(cat vendor/gambatte-src.sha)"
+          test -f "$out/System/licenses/gambatte-${gambatte_src_sha}.tar.gz"
+          test -f "$out/System/licenses/gambatte-${gambatte_src_sha}.meta"
+          for p in cores/gambatte/*.patch; do
+            test -f "$out/System/licenses/gambatte-$(basename "$p")"
           done
           mgba_src_commit="$(grep '^commit=' vendor/mgba_libretro.so.meta | cut -d= -f2)"
           test -f "$out/System/licenses/mgba-${mgba_src_commit}.meta"
@@ -76,12 +84,14 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      actions: write
     steps:
       - uses: actions/checkout@v7
         with:
           sparse-checkout: |
             CHANGELOG.md
             CHANGELOG-net.md
+            .github/scripts/versions.sh
           sparse-checkout-cone-mode: false
 
       - uses: actions/download-artifact@v8
@@ -105,3 +115,29 @@ jobs:
           test -s notes.md
           gh release create "$GITHUB_REF_NAME" "$ZIP" --repo "$GITHUB_REPOSITORY" \
             --title "$GITHUB_REF_NAME" --notes-file notes.md
+
+      # Devices read versions.json from the net branch (see LATEST in crates/slot/src/update.rs),
+      # so it only changes once this release's zip is up and its digest known.
+      - uses: actions/checkout@v7
+        with:
+          ref: net
+          path: branch
+
+      - name: Point the updater at this release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -eu
+          OUT=branch/versions.json SLOT_REPO="$GITHUB_REPOSITORY" \
+            LIVE="https://raw.githubusercontent.com/$GITHUB_REPOSITORY/net/versions.json" \
+            bash .github/scripts/versions.sh
+          cd branch
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add versions.json
+          if git diff --cached --quiet; then
+            echo "versions.json is already current"
+            exit 0
+          fi
+          git commit -m "versions.json: $GITHUB_REF_NAME"
+          git push origin HEAD:net

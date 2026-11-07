@@ -86,6 +86,10 @@ impl Power {
     pub fn set_clock(&mut self, secs: i64) {
         self.platform.set_clock(secs);
     }
+
+    pub fn set_network_time(&mut self, on: bool) {
+        self.platform.set_network_time(on);
+    }
 }
 
 impl LidPolicy for Power {

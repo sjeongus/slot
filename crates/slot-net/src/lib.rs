@@ -1,8 +1,10 @@
-//! Wi-Fi and Syncthing for slot.
+//! Syncthing and Tailscale for slot.
 //!
-//! [`Net`] runs a background thread that owns the supplicant and Syncthing. slot's UI sends it
-//! commands and reads a [`NetStatus`] snapshot, so a slow radio never stalls a frame. Link play
-//! borrows the radio through [`hold_for_link`] and [`release_after_link`].
+//! [`Net`] runs a background thread that owns Syncthing and Tailscale. slot's own Wi-Fi owns
+//! the radio and reports it through [`set_link`]; the thread starts the services while it is
+//! connected. slot's UI sends commands and reads a [`NetStatus`] snapshot, so a slow service
+//! never stalls a frame. Link play takes the radio through [`hold_for_link`] and
+//! [`release_after_link`].
 
 pub mod config;
 pub mod http;
@@ -24,6 +26,7 @@ pub use service::{
     hold_for_link, online, release_after_link, Backends, Net, NetStatus, SyncState, TailState,
     WifiState,
 };
+pub use wifi::set_link;
 pub use wpa::{valid_passphrase, ScanResult};
 
 /// Runtime files: the supplicant config and control socket, DHCP pid, a runnable Syncthing.
@@ -40,8 +43,8 @@ pub fn start(root: &Path, country: Option<String>) -> Net {
     #[cfg(feature = "device")]
     {
         let run = run_dir();
-        let wifi = wifi::ScriptWifi::new(root, &run);
-        let cfg = NetConfig::load(root);
+        let wifi = wifi::ExternalWifi;
+        let cfg = owned_by_slot(root);
         let mut cfg_keys = (cfg.syncthing_api_key, cfg.syncthing_password);
         if cfg_keys.0.is_empty() || cfg_keys.1.is_empty() {
             // Net::start fills these in; make sure Syncthing gets the same ones.
@@ -70,7 +73,8 @@ pub fn start(root: &Path, country: Option<String>) -> Net {
             Backends {
                 wifi: Box::new(wifi),
                 sync: Box::new(sync),
-                clock: Box::new(time::BaseosClock::new()),
+                // slot's own Date & Time owns the clock and the zone.
+                clock: Box::new(time::SimClock::default()),
                 tail: Box::new(tail),
                 probe: Box::new(service::tcp_probe),
                 hostname: hostname(),
@@ -80,8 +84,31 @@ pub fn start(root: &Path, country: Option<String>) -> Net {
     }
     #[cfg(not(feature = "device"))]
     {
-        Net::start(root, sim_backends(), country)
+        owned_by_slot(root);
+        Net::start(
+            root,
+            Backends {
+                wifi: Box::new(wifi::ExternalWifi),
+                ..sim_backends()
+            },
+            country,
+        )
     }
+}
+
+/// The settings slot itself now owns: the radio is always this thread's to follow, and the
+/// clock and zone are never its to set.
+fn owned_by_slot(root: &Path) -> NetConfig {
+    let mut cfg = NetConfig::load(root);
+    if !cfg.wifi || cfg.network_time || cfg.auto_timezone {
+        cfg.wifi = true;
+        cfg.network_time = false;
+        cfg.auto_timezone = false;
+        if let Err(e) = cfg.save(root) {
+            eprintln!("slot-net: net.txt: {e}");
+        }
+    }
+    cfg
 }
 
 /// Stand-ins for everything, for the host build and tests.

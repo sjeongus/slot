@@ -245,7 +245,7 @@ impl GameButton {
 
     pub fn of(platform: Platform) -> &'static [GameButton] {
         match platform {
-            Platform::Gba => &GameButton::ALL,
+            Platform::Gba | Platform::Gbav => &GameButton::ALL,
             Platform::Gb | Platform::Gbc => &GameButton::GAME_BOY,
         }
     }
@@ -321,11 +321,16 @@ pub enum Shortcut {
     ShaderNext,
     ShaderBack,
     FastForward,
+    FastForwardToggle,
     Rewind,
+    SunlightUp,
+    SunlightDown,
+    Reset,
+    Guide,
 }
 
 impl Shortcut {
-    pub const ALL: [Shortcut; 14] = [
+    pub const ALL: [Shortcut; 19] = [
         Shortcut::SaveState,
         Shortcut::LoadState,
         Shortcut::Screenshot,
@@ -339,7 +344,12 @@ impl Shortcut {
         Shortcut::ShaderNext,
         Shortcut::ShaderBack,
         Shortcut::FastForward,
+        Shortcut::FastForwardToggle,
         Shortcut::Rewind,
+        Shortcut::SunlightUp,
+        Shortcut::SunlightDown,
+        Shortcut::Reset,
+        Shortcut::Guide,
     ];
 
     pub fn label(self) -> &'static str {
@@ -357,7 +367,12 @@ impl Shortcut {
             Shortcut::ShaderNext => "Shader Next",
             Shortcut::ShaderBack => "Shader Back",
             Shortcut::FastForward => "Fast Forward",
+            Shortcut::FastForwardToggle => "FF Toggle",
             Shortcut::Rewind => "Rewind",
+            Shortcut::SunlightUp => "Sunlight Up",
+            Shortcut::SunlightDown => "Sunlight Down",
+            Shortcut::Reset => "Reset Game",
+            Shortcut::Guide => "Guide",
         }
     }
 
@@ -376,7 +391,12 @@ impl Shortcut {
             Shortcut::ShaderNext => "shader_next",
             Shortcut::ShaderBack => "shader_back",
             Shortcut::FastForward => "fast_forward",
+            Shortcut::FastForwardToggle => "fast_forward_toggle",
             Shortcut::Rewind => "rewind",
+            Shortcut::SunlightUp => "sunlight_up",
+            Shortcut::SunlightDown => "sunlight_down",
+            Shortcut::Reset => "reset",
+            Shortcut::Guide => "guide",
         }
     }
 
@@ -396,7 +416,11 @@ impl Shortcut {
             Shortcut::ShaderNext => select(Device::A),
             Shortcut::ShaderBack => select(Device::B),
             Shortcut::FastForward => Binding::plain(Device::R2),
+            Shortcut::FastForwardToggle => None,
             Shortcut::Rewind => Binding::plain(Device::L2),
+            Shortcut::SunlightUp | Shortcut::SunlightDown | Shortcut::Reset | Shortcut::Guide => {
+                None
+            }
         }
     }
 
@@ -450,7 +474,7 @@ impl Controls {
 
 #[derive(Copy, Clone, PartialEq, Eq, Debug)]
 pub struct ShortcutKeys {
-    keys: [Option<Binding>; 14],
+    keys: [Option<Binding>; 19],
 }
 
 impl Default for ShortcutKeys {
@@ -468,6 +492,14 @@ impl ShortcutKeys {
 
     pub fn set(&mut self, shortcut: Shortcut, binding: Option<Binding>) {
         self.keys[shortcut.index()] = binding;
+        let rival = match shortcut {
+            Shortcut::FastForward => Shortcut::FastForwardToggle,
+            Shortcut::FastForwardToggle => Shortcut::FastForward,
+            _ => return,
+        };
+        if binding.is_some() && self.get(rival) == binding {
+            self.keys[rival.index()] = None;
+        }
     }
 }
 
@@ -516,13 +548,19 @@ pub enum CarouselAction {
     PreviousShelf,
     NextShelf,
     Favorite,
+    ForgetRecent,
+    PreviousCollection,
+    NextCollection,
 }
 
 impl CarouselAction {
-    pub const ALL: [CarouselAction; 3] = [
+    pub const ALL: [CarouselAction; 6] = [
         CarouselAction::PreviousShelf,
         CarouselAction::NextShelf,
         CarouselAction::Favorite,
+        CarouselAction::ForgetRecent,
+        CarouselAction::PreviousCollection,
+        CarouselAction::NextCollection,
     ];
 
     pub fn label(self) -> &'static str {
@@ -530,6 +568,9 @@ impl CarouselAction {
             CarouselAction::PreviousShelf => "Previous Shelf",
             CarouselAction::NextShelf => "Next Shelf",
             CarouselAction::Favorite => "Favorite",
+            CarouselAction::ForgetRecent => "Remove Recent",
+            CarouselAction::PreviousCollection => "Previous",
+            CarouselAction::NextCollection => "Next",
         }
     }
 
@@ -538,6 +579,9 @@ impl CarouselAction {
             CarouselAction::PreviousShelf => "previous_shelf",
             CarouselAction::NextShelf => "next_shelf",
             CarouselAction::Favorite => "favorite",
+            CarouselAction::ForgetRecent => "remove_recent",
+            CarouselAction::PreviousCollection => "previous_collection",
+            CarouselAction::NextCollection => "next_collection",
         }
     }
 
@@ -548,7 +592,7 @@ impl CarouselAction {
 
 #[derive(Copy, Clone, PartialEq, Eq, Debug)]
 pub struct CarouselKeys {
-    keys: [Option<Binding>; 3],
+    keys: [Option<Binding>; 6],
 }
 
 impl Default for CarouselKeys {
@@ -558,6 +602,9 @@ impl Default for CarouselKeys {
                 Binding::plain(Device::L1),
                 Binding::plain(Device::R1),
                 Binding::plain(Device::Y),
+                Binding::plain(Device::X),
+                Binding::plain(Device::L2),
+                Binding::plain(Device::R2),
             ],
         }
     }
@@ -572,6 +619,18 @@ impl CarouselKeys {
         self.keys[action.index()] = binding;
     }
 }
+
+pub const SHELF_ACTIONS: [CarouselAction; 4] = [
+    CarouselAction::PreviousShelf,
+    CarouselAction::NextShelf,
+    CarouselAction::Favorite,
+    CarouselAction::ForgetRecent,
+];
+
+pub const COLLECTION_ACTIONS: [CarouselAction; 2] = [
+    CarouselAction::PreviousCollection,
+    CarouselAction::NextCollection,
+];
 
 pub fn read_carousel(root: &Path) -> CarouselKeys {
     let mut keys = CarouselKeys::default();

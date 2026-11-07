@@ -2,8 +2,8 @@
 site_url = "https://slot-cfw.fyi/"
 site_name = "slot."
 site_description = "A bespoke, Game Boy-centric frontend for the Anbernic RG SP."
-repo_url = "https://github.com/BrandonKowalski/slot"
-repo_name = "BrandonKowalski/slot"
+repo_url = "https://github.com/slot-cfw/slot"
+repo_name = "slot-cfw/slot"
 docs_dir = "docs"
 site_dir = "public"
 
@@ -15,7 +15,9 @@ nav = [
   { "Guide" = [
     { "Playing" = [
       "guide/shelf.md",
+      "guide/collections.md",
       "guide/playing.md",
+      "guide/game-guides.md",
       "guide/screenshots.md",
       "guide/save-states.md",
       "guide/fast-forward-rewind-turbo.md",
@@ -26,6 +28,7 @@ nav = [
       "guide/screen.md",
       "guide/controls.md",
       "guide/customizing.md",
+      "guide/gamebit.md",
     ] },
     { "Reference and Help" = [
       "guide/settings.md",
@@ -72,6 +75,7 @@ def_list = {}
 md_in_html = {}
 toc.permalink = true
 pymdownx.details = {}
+pymdownx.snippets = { base_path = ["."], check_paths = true }
 pymdownx.superfences = {}
 pymdownx.tabbed.alternate_style = true
 pymdownx.tabbed.combine_header_slug = true

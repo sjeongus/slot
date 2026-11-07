@@ -58,6 +58,7 @@ pub fn core_dir(core: Core) -> &'static str {
     match core {
         Core::Mgba => "mGBA",
         Core::Gpsp => "gpSP",
+        Core::Gambatte => "Gambatte",
     }
 }
 
@@ -247,6 +248,13 @@ impl StateRing {
         match self {
             StateRing::Slot(r) => r.write_resume(state),
             StateRing::RetroArch(r) => r.write_resume(state),
+        }
+    }
+
+    pub fn has_resume(&self) -> bool {
+        match self {
+            StateRing::Slot(r) => r.has_resume(),
+            StateRing::RetroArch(r) => r.newest().is_ok_and(|f| f.is_some()),
         }
     }
 

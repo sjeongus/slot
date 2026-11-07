@@ -1,0 +1,9 @@
+{
+  "stable": {
+    "version": "1.14.0-net.1",
+    "tag": "v1.14.0-net.1",
+    "zip": "slot-v1.14.0-net.1-h700.zip",
+    "size": 60806053,
+    "sha256": "019820126a4c7b240613e0ea7a2190210bdb0144ea3e02bac48da52d45c3738d"
+  }
+}

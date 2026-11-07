@@ -208,6 +208,18 @@ Kept small on purpose, so upstream merges stay easy:
 | `crates/slot/tests/network.rs`, `achievements_page.rs`, `render_fork.rs` | **New.** Tests; `render_fork` dumps the new screens with `SCRATCH_PNG_DIR`. |
 
 
+## Releasing
+
+1. Add a section for the version to `CHANGELOG-net.md` (`## [1.14.0-net.2](…)`) and push it to
+   `net`.
+2. On GitHub: **Actions > release > Run workflow**, on `net`, with the version
+   (`1.14.0-net.2`).
+
+The workflow checks the changelog has that section and the tag is new, builds the zip at that
+commit, creates the tag and the release with the section as its notes, and commits
+`versions.json` to `net` so devices are offered it. Pushing a `v…` tag yourself does the same.
+Run workflow with no version builds a test zip and releases nothing.
+
 ## Taking new upstream releases
 
 ```sh

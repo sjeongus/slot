@@ -1,18 +1,80 @@
 name: release
 
+# Releases start one of two ways:
+# - Actions > release > Run workflow, with the version (1.14.0-net.1). The workflow builds that
+#   commit, then creates the tag and the release together.
+# - Pushing a tag (v1.14.0-net.1) does the same for the tagged commit.
+# Either way the notes are that version's section of CHANGELOG-net.md, which must exist first,
+# and versions.json on net is updated once the zip is up. Run workflow with no version builds
+# a test zip and releases nothing.
 on:
   push:
     tags: ['v*']
   workflow_dispatch:
+    inputs:
+      version:
+        description: Version to release, like 1.14.0-net.1. Leave empty for a test build only.
+        required: false
+        default: ''
 
 permissions:
   contents: read
 
 jobs:
+  plan:
+    name: plan
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.plan.outputs.tag }}
+      publish: ${{ steps.plan.outputs.publish }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          sparse-checkout: |
+            CHANGELOG.md
+            CHANGELOG-net.md
+          sparse-checkout-cone-mode: false
+
+      - name: Work out the tag, and check it can be released
+        id: plan
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ inputs.version }}
+        run: |
+          set -eu
+          if [ "$GITHUB_REF_TYPE" = tag ]; then
+            tag="$GITHUB_REF_NAME" publish=true
+          elif [ -n "$VERSION" ]; then
+            tag="v${VERSION#v}" publish=true
+            if gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$tag" >/dev/null 2>&1; then
+              echo "::error::$tag already exists; pick the next version"
+              exit 1
+            fi
+          else
+            tag="$GITHUB_REF_NAME" publish=false
+          fi
+          if [ "$publish" = true ]; then
+            echo "$tag" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+(-net\.[0-9]+)?$' || {
+              echo "::error::$tag is not a version like v1.14.0-net.1"; exit 1;
+            }
+            changelog=CHANGELOG.md
+            case "$tag" in *-net.*) changelog=CHANGELOG-net.md ;; esac
+            grep -q "^## \[${tag#v}\]" "$changelog" || {
+              echo "::error::$changelog has no section for ${tag#v}; add one and run again"
+              exit 1
+            }
+          fi
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "publish=$publish" >> "$GITHUB_OUTPUT"
+          echo "Building $tag; release: $publish"
+
   build:
     name: card tree
+    needs: plan
     runs-on: ubuntu-24.04-arm
     container: rust:1-bullseye
+    env:
+      TAG: ${{ needs.plan.outputs.tag }}
     outputs:
       zip: ${{ steps.package.outputs.zip }}
     steps:
@@ -27,13 +89,17 @@ jobs:
           curl -fsSL https://taskfile.dev/install.sh | sh -s -- -b /usr/local/bin
           curl -fsSL https://bun.sh/install | BUN_INSTALL=/usr/local bash -s "bun-v1.2.6"
 
+      # The version slot reports, and compares with versions.json when checking for updates.
       - name: Build the tree
-        run: task dist:device OUT="slot-${GITHUB_REF_NAME}"
+        run: |
+          set -eu
+          case "$TAG" in v[0-9]*) export SLOT_VERSION="${TAG#v}" ;; esac
+          task dist:device OUT="slot-${TAG}"
 
       - name: Check what is about to ship
         run: |
           set -eu
-          out="slot-${GITHUB_REF_NAME}"
+          out="slot-${TAG}"
           file "$out/System/slot" | grep -q aarch64
           file "$out/System/mgba_libretro.so" | grep -q aarch64
           file "$out/System/gpsp_libretro.so" | grep -q aarch64
@@ -66,7 +132,7 @@ jobs:
         id: package
         run: |
           set -eu
-          out="slot-${GITHUB_REF_NAME}"
+          out="slot-${TAG}"
           zip="$out-h700.zip"
           zip -qry "$zip" "$out"
           echo "zip=$zip" >> "$GITHUB_OUTPUT"
@@ -79,9 +145,11 @@ jobs:
 
   publish:
     name: release
-    needs: build
-    if: startsWith(github.ref, 'refs/tags/')
+    needs: [plan, build]
+    if: needs.plan.outputs.publish == 'true'
     runs-on: ubuntu-latest
+    env:
+      TAG: ${{ needs.plan.outputs.tag }}
     permissions:
       contents: write
       actions: write
@@ -106,15 +174,16 @@ jobs:
           set -eu
           # This fork's releases (v1.9.0-net.1) keep their notes apart from upstream's.
           changelog=CHANGELOG.md
-          case "$GITHUB_REF_NAME" in *-net.*) changelog=CHANGELOG-net.md ;; esac
-          awk -v head="## [${GITHUB_REF_NAME#v}]" '
+          case "$TAG" in *-net.*) changelog=CHANGELOG-net.md ;; esac
+          awk -v head="## [${TAG#v}]" '
             index($0, head) == 1 { found = 1; next }
             found && /^## / { exit }
             found { print }
           ' "$changelog" | sed -e '/./,$!d' > notes.md
           test -s notes.md
-          gh release create "$GITHUB_REF_NAME" "$ZIP" --repo "$GITHUB_REPOSITORY" \
-            --title "$GITHUB_REF_NAME" --notes-file notes.md
+          # --target makes the tag at the built commit when the run did not start from one.
+          gh release create "$TAG" "$ZIP" --repo "$GITHUB_REPOSITORY" \
+            --target "$GITHUB_SHA" --title "$TAG" --notes-file notes.md
 
       # Devices read versions.json from the net branch (see LATEST in crates/slot/src/update.rs),
       # so it only changes once this release's zip is up and its digest known.
@@ -142,5 +211,5 @@ jobs:
             echo "versions.json is already current"
             exit 0
           fi
-          git commit -m "versions.json: $GITHUB_REF_NAME"
+          git commit -m "versions.json: $TAG"
           git push origin HEAD:net

@@ -605,9 +605,9 @@ fn network_sits_between_controls_and_about() {
         [
             QuickRow::WifiPower,
             QuickRow::Networks,
+            QuickRow::Achievements,
             QuickRow::Syncthing,
-            QuickRow::Tailscale,
-            QuickRow::Achievements
+            QuickRow::Tailscale
         ]
     );
     assert_eq!(QuickRow::GENERAL.last(), Some(&QuickRow::DateTime));
@@ -637,7 +637,7 @@ fn tools_holds_the_network_tools() {
     );
     assert_eq!(
         QuickRow::WIFI.map(QuickRow::label),
-        ["Wi-Fi", "Network", "Syncthing", "Tailscale", "Achievements"]
+        ["Wi-Fi", "Network", "Achievements", "Syncthing", "Tailscale"]
     );
     assert_eq!(QuickRow::Wifi.label(), "Wi-Fi");
     assert!(!QuickRow::GENERAL.contains(&QuickRow::FetchArt));

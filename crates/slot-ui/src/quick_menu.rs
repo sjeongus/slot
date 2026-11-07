@@ -335,9 +335,9 @@ impl QuickRow {
     pub const WIFI: [QuickRow; 5] = [
         QuickRow::WifiPower,
         QuickRow::Networks,
+        QuickRow::Achievements,
         QuickRow::Syncthing,
         QuickRow::Tailscale,
-        QuickRow::Achievements,
     ];
 
     pub const NETWORK: [QuickRow; 4] = [

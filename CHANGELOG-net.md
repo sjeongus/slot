@@ -14,7 +14,7 @@ zones with daylight saving, Gambatte for GB and GBC, and more: see [CHANGELOG.md
 - Bezels: upstream's rule decides when the game moves up under a custom bezel, and handles semi-transparent screens.
 
 **Moved**
-- Syncthing, Tailscale and Achievements are rows on General > Wi-Fi, each with its own page; Achievements stays there with Wi-Fi off. The pages look like the rest of the menu, and the device ID and the Tailscale login show on a screen like RomM's pairing one.
+- Achievements, Syncthing and Tailscale are rows on General > Wi-Fi, each with its own page; Achievements stays there with Wi-Fi off. The pages look like the rest of the menu, and the device ID and the Tailscale login show on a screen like RomM's pairing one.
 - Achievements can be opened, turned on and off with no network.
 
 **New**

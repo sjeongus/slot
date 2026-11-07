@@ -93,7 +93,7 @@ fn wait(a: &mut App, what: &str, ok: impl Fn(&NetStatus) -> bool) -> NetStatus {
 fn syncthing_tailscale_and_achievements_sit_under_wifi() {
     assert_eq!(
         QuickRow::WIFI.map(QuickRow::label),
-        ["Wi-Fi", "Network", "Syncthing", "Tailscale", "Achievements"]
+        ["Wi-Fi", "Network", "Achievements", "Syncthing", "Tailscale"]
     );
     for (page, parent) in [
         (&QuickRow::SYNCTHING[..], &QuickRow::WIFI[..]),

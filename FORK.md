@@ -11,7 +11,7 @@ new upstream releases are merged in as they come.
 ## Using it
 
 Wi-Fi is upstream's: **General > Wi-Fi** turns it on and picks a network. This fork adds three
-rows to that page, **Syncthing**, **Tailscale** and **Achievements**. Each opens a page of its
+rows to that page, **Achievements**, **Syncthing** and **Tailscale**. Each opens a page of its
 own, drawn like the rest of the menu. Achievements stays on the page with Wi-Fi off, for
 offline play.
 

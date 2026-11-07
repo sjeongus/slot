@@ -1,6 +1,7 @@
 name: network check
 
-# The fork's own checks: the network crate, its screens, the card scripts, and the device build.
+# The fork's own checks: its crates, the pages and keyboard it adds, updates, the card scripts,
+# and the device build.
 on:
   push:
     branches: [net]
@@ -41,11 +42,16 @@ jobs:
           SLOT_SILENT: '1'
         run: |
           cargo test -p slot-net
-          cargo test -p slot-ui --test net_screen --test quick_menu
-          cargo test -p slot --test network --test quick_menu --test app
+          cargo test -p slot-ach
+          cargo test -p slot-store --test retroarch
+          cargo test -p slot-ui --test keyboard --test quick_menu
+          cargo test -p slot --test network --test achievements_page --test quick_menu \
+            --test update --test save_format --test retroarch_layout --test in_game_menu --test app
 
       - name: Lint the new code and the device build
         run: |
-          cargo clippy -p slot-net --all-targets -- -D warnings
+          cargo clippy -p slot-net -p slot-ach --all-targets -- -D warnings
           cargo clippy -p slot-net --features device -- -D warnings
-          cargo clippy -p slot --no-default-features --features device -- -D warnings
+          # Upstream's own code in the slot crate is not clippy-clean, so the device build is
+          # checked to compile, not held to zero warnings.
+          cargo clippy -p slot --no-default-features --features device

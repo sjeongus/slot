@@ -320,7 +320,7 @@ impl QuickRow {
         QuickRow::About,
     ];
 
-    pub const GENERAL: [QuickRow; 10] = [
+    pub const GENERAL: [QuickRow; 9] = [
         QuickRow::Theme,
         QuickRow::Wallpaper,
         QuickRow::WallpaperTint,
@@ -328,16 +328,16 @@ impl QuickRow {
         QuickRow::Recents,
         QuickRow::ShowTitles,
         QuickRow::LidOff,
-        QuickRow::Achievements,
         QuickRow::Wifi,
         QuickRow::DateTime,
     ];
 
-    pub const WIFI: [QuickRow; 4] = [
+    pub const WIFI: [QuickRow; 5] = [
         QuickRow::WifiPower,
         QuickRow::Networks,
         QuickRow::Syncthing,
         QuickRow::Tailscale,
+        QuickRow::Achievements,
     ];
 
     pub const NETWORK: [QuickRow; 4] = [
@@ -592,12 +592,12 @@ impl QuickRow {
             | QuickRow::ShelfMode
             | QuickRow::ShowTitles
             | QuickRow::LidOff
-            | QuickRow::Wifi
-            | QuickRow::Achievements => &QuickRow::GENERAL,
+            | QuickRow::Wifi => &QuickRow::GENERAL,
             QuickRow::WifiPower
             | QuickRow::Networks
             | QuickRow::Syncthing
-            | QuickRow::Tailscale => &QuickRow::WIFI,
+            | QuickRow::Tailscale
+            | QuickRow::Achievements => &QuickRow::WIFI,
             QuickRow::CheckUpdates
             | QuickRow::FetchArt
             | QuickRow::Romm
@@ -1945,14 +1945,10 @@ fn scrolls(page: &[QuickRow]) -> bool {
     .contains(&page)
 }
 
-/// Gameplay shows the eight rows that fit, and scrolls only past them.
-const GAME_VISIBLE: usize = 8;
-
 fn visible(page: &[QuickRow]) -> usize {
-    match page {
-        p if p == QuickRow::PLAY_SCREEN => PANEL_VISIBLE,
-        p if p == QuickRow::GAME => GAME_VISIBLE,
-        _ => QUICK_VISIBLE,
+    match page == QuickRow::PLAY_SCREEN {
+        true => PANEL_VISIBLE,
+        false => QUICK_VISIBLE,
     }
 }
 

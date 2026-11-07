@@ -606,7 +606,8 @@ fn network_sits_between_controls_and_about() {
             QuickRow::WifiPower,
             QuickRow::Networks,
             QuickRow::Syncthing,
-            QuickRow::Tailscale
+            QuickRow::Tailscale,
+            QuickRow::Achievements
         ]
     );
     assert_eq!(QuickRow::GENERAL.last(), Some(&QuickRow::DateTime));
@@ -636,7 +637,7 @@ fn tools_holds_the_network_tools() {
     );
     assert_eq!(
         QuickRow::WIFI.map(QuickRow::label),
-        ["Wi-Fi", "Network", "Syncthing", "Tailscale"]
+        ["Wi-Fi", "Network", "Syncthing", "Tailscale", "Achievements"]
     );
     assert_eq!(QuickRow::Wifi.label(), "Wi-Fi");
     assert!(!QuickRow::GENERAL.contains(&QuickRow::FetchArt));
@@ -726,10 +727,12 @@ fn wifi_off_leaves_only_the_wifi_row_on_the_wifi_page() {
     open_at(&mut a, QuickRow::WifiPower);
     press(&mut a, Btn::A);
     assert!(a.wifi_is_off());
+    // Achievements stay, for offline play.
     assert_eq!(
         QuickRow::WifiPower.shown(&a.hidden_rows()),
-        [QuickRow::WifiPower]
+        [QuickRow::WifiPower, QuickRow::Achievements]
     );
+    press(&mut a, Btn::Down);
     press(&mut a, Btn::Down);
     assert_eq!(a.quick_menu(), Some(QuickRow::WifiPower));
     press(&mut a, Btn::A);

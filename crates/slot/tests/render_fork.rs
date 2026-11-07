@@ -1,5 +1,5 @@
 //! Renders this fork's own screens the way the device draws them, and dumps them as PNGs
-//! when SCRATCH_PNG_DIR is set: General and Wi-Fi with their new rows, Syncthing, Tailscale and Achievements, their
+//! when SCRATCH_PNG_DIR is set: Wi-Fi with its new rows, Syncthing, Tailscale and Achievements, their
 //! info screens, the keyboard and Save Format. One test, because achievements are one per
 //! process. Skipped where there is no GL to draw with.
 
@@ -120,8 +120,6 @@ fn the_forks_screens_render() {
     f.app_mut().apply(Action::QuickMenu);
     select(&mut f, QuickRow::General);
     press(&mut f, Btn::A);
-    select(&mut f, QuickRow::Achievements);
-    shot(&mut f, &mut c, "general");
     select(&mut f, QuickRow::Wifi);
     press(&mut f, Btn::A);
     select(&mut f, QuickRow::Syncthing);
@@ -153,7 +151,6 @@ fn the_forks_screens_render() {
     assert_eq!(f.app().quick_menu(), Some(QuickRow::TailStatus));
     shot(&mut f, &mut c, "tailscale");
     press(&mut f, Btn::B);
-    press(&mut f, Btn::B);
 
     select(&mut f, QuickRow::Achievements);
     press(&mut f, Btn::A);
@@ -169,8 +166,9 @@ fn the_forks_screens_render() {
     press(&mut f, Btn::B);
     press(&mut f, Btn::Y);
 
-    press(&mut f, Btn::B);
-    press(&mut f, Btn::B);
+    for _ in 0..3 {
+        press(&mut f, Btn::B);
+    }
     assert_eq!(f.app().quick_menu(), Some(QuickRow::General));
     select(&mut f, QuickRow::Game);
     press(&mut f, Btn::A);

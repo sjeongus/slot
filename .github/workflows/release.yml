@@ -131,6 +131,9 @@ jobs:
           OUT=branch/versions.json SLOT_REPO="$GITHUB_REPOSITORY" \
             LIVE="https://raw.githubusercontent.com/$GITHUB_REPOSITORY/net/versions.json" \
             bash .github/scripts/versions.sh
+          # This fork's BaseOS is installed from the card only, never over the air.
+          jq 'del(.baseos)' branch/versions.json > versions.json.new
+          mv versions.json.new branch/versions.json
           cd branch
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"

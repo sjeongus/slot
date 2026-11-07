@@ -1,4 +1,4 @@
-//! General > Achievements works with no network at all, and logs in through the
+//! General > Wi-Fi > Achievements works with no network at all, and logs in through the
 //! keyboard. In a file of its own: achievements are one per process.
 
 mod common;
@@ -41,6 +41,8 @@ fn open_achievements(a: &mut App) {
     a.apply(Action::QuickMenu);
     select(a, QuickRow::General);
     press(a, Btn::A);
+    select(a, QuickRow::Wifi);
+    press(a, Btn::A);
     select(a, QuickRow::Achievements);
     press(a, Btn::A);
     assert_eq!(a.quick_menu(), Some(QuickRow::AchPower));
@@ -81,7 +83,7 @@ fn achievements_stay_on_offline_and_the_account_row_asks_for_a_login() {
 
     open_achievements(&mut a);
     assert_eq!(a.quick_value(QuickRow::AchPower), Some(QuickValue::On));
-    for _ in 0..3 {
+    for _ in 0..4 {
         press(&mut a, Btn::B);
     }
     assert!(matches!(a.phase(), Phase::Shelf), "{:?}", a.phase());

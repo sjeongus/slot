@@ -94,7 +94,6 @@ fn the_rows_run_in_the_order_the_user_chose() {
             "Recents",
             "Game Titles",
             "Lid Power Off",
-            "Achievements",
             "Wi-Fi",
             "Date & Time"
         ]
@@ -545,14 +544,9 @@ fn a_scroll_bar_shows_only_on_a_page_with_rows_out_of_sight() {
         slot_ui::quick_scroll(QuickRow::Shader, &[QuickRow::Palette, QuickRow::Bezel]).is_some(),
         "nine rows in three still scroll"
     );
-    assert_eq!(
-        slot_ui::quick_scroll(QuickRow::Rumble, &[QuickRow::LeftStick]),
-        None,
-        "eight Gameplay rows fit"
-    );
     assert!(
-        slot_ui::quick_scroll(QuickRow::Rumble, &[]).is_some(),
-        "nine scroll"
+        slot_ui::quick_scroll(QuickRow::Rumble, &[QuickRow::LeftStick]).is_some(),
+        "Gameplay scrolls past six rows, as General does"
     );
     assert!(slot_ui::quick_scroll(QuickRow::GameUp, &[]).is_some());
 }

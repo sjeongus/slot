@@ -1,5 +1,5 @@
-//! slot's own network features inside the App: the Syncthing and Tailscale pages under
-//! General > Wi-Fi and the Achievements page under General, the info screens for a device ID or a login, keeping the network
+//! slot's own network features inside the App: the Syncthing, Tailscale and Achievements
+//! pages under General > Wi-Fi, the info screens for a device ID or a login, keeping the network
 //! thread in step with slot's Wi-Fi and with play, and the achievement notices over the game.
 //!
 //! Kept apart from app.rs so upstream changes to the App merge with as little friction as
@@ -291,7 +291,7 @@ impl App {
     /// The rows that mean nothing in the current state.
     pub(super) fn net_hidden(&self) -> Vec<QuickRow> {
         let mut hidden = Vec::new();
-        if self.net.no_wifi || self.net.net.is_none() {
+        if self.net.no_wifi || self.net.net.is_none() || self.wifi_is_off() {
             hidden.extend([QuickRow::Syncthing, QuickRow::Tailscale]);
         }
         let status = self.net_status();

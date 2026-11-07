@@ -292,6 +292,8 @@ pub const WIFI_CONF: &str = "Config/wifi.conf";
 /// features.
 pub const LATEST: &str = "https://raw.githubusercontent.com/sjeongus/slot/net/versions.json";
 const RELEASES: &str = "https://github.com/sjeongus/slot/releases/download";
+/// Whether a check also offers BaseOS updates. Off in this fork: see the check.
+const OTA_BASEOS: bool = false;
 const BASEOS_RELEASES: &str = "https://github.com/pvaibhav/BaseOS/releases/download";
 
 #[derive(Debug, Clone, Copy)]
@@ -656,7 +658,11 @@ fn run(root: &Path, job: &UpdateJob, ticket: &Ticket, tx: &Sender<UpdateEvent>) 
                 &mut |url| fetch(url, API_TIMEOUT, &mut |_| {}),
                 Running {
                     slot: crate::build_info::Build::current().version,
-                    baseos: target.as_deref().zip(version.as_deref()),
+                    // This fork's BaseOS carries its own changes and is installed
+                    // from the card (a .bosupd at its root), never over the air.
+                    baseos: OTA_BASEOS
+                        .then(|| target.as_deref().zip(version.as_deref()))
+                        .flatten(),
                 },
             )
         }

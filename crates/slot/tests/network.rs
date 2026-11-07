@@ -90,21 +90,15 @@ fn wait(a: &mut App, what: &str, ok: impl Fn(&NetStatus) -> bool) -> NetStatus {
 }
 
 #[test]
-fn syncthing_and_tailscale_sit_under_wifi_and_achievements_under_general() {
+fn syncthing_tailscale_and_achievements_sit_under_wifi() {
     assert_eq!(
         QuickRow::WIFI.map(QuickRow::label),
-        ["Wi-Fi", "Network", "Syncthing", "Tailscale"]
-    );
-    let general = QuickRow::GENERAL;
-    let at = |r| general.iter().position(|g| *g == r);
-    assert_eq!(
-        at(QuickRow::Wifi),
-        at(QuickRow::Achievements).map(|i| i + 1)
+        ["Wi-Fi", "Network", "Syncthing", "Tailscale", "Achievements"]
     );
     for (page, parent) in [
         (&QuickRow::SYNCTHING[..], &QuickRow::WIFI[..]),
         (&QuickRow::TAILSCALE, &QuickRow::WIFI),
-        (&QuickRow::ACHIEVEMENTS, &QuickRow::GENERAL),
+        (&QuickRow::ACHIEVEMENTS, &QuickRow::WIFI),
     ] {
         assert_eq!(page[0].parent().map(|p| p.page()), Some(parent));
     }

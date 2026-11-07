@@ -33,7 +33,7 @@ me without pulling the SD card. This fork adds:
 - **[Tailscale](https://tailscale.com)**, bundled, under General > Wi-Fi. Log in by scanning a
   code on screen or opening its link on another device, and the handheld joins your tailnet
   whenever it is online.
-- **[RetroAchievements](https://retroachievements.org)**, under General, with offline play. Log
+- **[RetroAchievements](https://retroachievements.org)**, under General > Wi-Fi, with offline play. Log
   in with the on-screen keyboard; unlocks pop up over the game. Offline, achievements still
   unlock from what was saved while online, and are sent once you are back.
 - **Updates from this fork.** Tools > Check for Updates installs this fork's releases.

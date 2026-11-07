@@ -14,12 +14,14 @@ zones with daylight saving, Gambatte for GB and GBC, and more: see [CHANGELOG.md
 - Bezels: upstream's rule decides when the game moves up under a custom bezel, and handles semi-transparent screens.
 
 **Moved**
-- Syncthing and Tailscale are rows on General > Wi-Fi, each with its own page; Achievements is a row on General. The pages look like the rest of the menu, and the device ID and the Tailscale login show on a screen like RomM's pairing one.
+- Syncthing, Tailscale and Achievements are rows on General > Wi-Fi, each with its own page; Achievements stays there with Wi-Fi off. The pages look like the rest of the menu, and the device ID and the Tailscale login show on a screen like RomM's pairing one.
 - Achievements can be opened, turned on and off with no network.
 
 **New**
 - Over-the-air updates come from this fork's releases (Tools > Check for Updates), never from upstream's, which would remove these features.
 - R2 flips upstream's keyboard to the symbols page and back.
+- Gameplay scrolls past six rows with a scroll bar, as General does.
+- BaseOS is no longer updated over the air: this fork's BaseOS goes on from the SD card.
 - With Achievements logged in, Tailscale on, or Syncthing's Sync In Games on, Wi-Fi stays up while a game runs; upstream turns it off then.
 
 ## [1.9.0-net.2](https://github.com/sjeongus/slot/releases/tag/v1.9.0-net.2)

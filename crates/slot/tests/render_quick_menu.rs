@@ -727,7 +727,14 @@ fn the_wifi_page_renders() {
             (53..=57).contains(&first),
             "{row:?}'s label starts at x {first}"
         );
-        let valued = matches!(row, QuickRow::WifiPower | QuickRow::Networks);
+        let valued = matches!(
+            row,
+            QuickRow::WifiPower
+                | QuickRow::Networks
+                | QuickRow::Syncthing
+                | QuickRow::Tailscale
+                | QuickRow::Achievements
+        );
         assert_eq!(
             ink_at(&px, right - 30..right, top),
             valued,

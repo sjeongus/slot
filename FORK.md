@@ -10,9 +10,10 @@ new upstream releases are merged in as they come.
 
 ## Using it
 
-Wi-Fi is upstream's: **General > Wi-Fi** turns it on and picks a network. This fork adds two
-rows to that page, **Syncthing** and **Tailscale**, and an **Achievements** row to **General**.
-Each opens a page of its own, drawn like the rest of the menu.
+Wi-Fi is upstream's: **General > Wi-Fi** turns it on and picks a network. This fork adds three
+rows to that page, **Syncthing**, **Tailscale** and **Achievements**. Each opens a page of its
+own, drawn like the rest of the menu. Achievements stays on the page with Wi-Fi off, for
+offline play.
 
 1. Open the menu on the shelf (MENU), then **General > Wi-Fi**, and join your network.
 2. **Syncthing**: turn **Syncthing** on. Once the device is on Wi-Fi, **Device ID** shows:
@@ -90,7 +91,7 @@ Notes:
 
 ### RetroAchievements
 
-1. General > **Achievements** > **Account**. Type your RetroAchievements user name, then your
+1. General > Wi-Fi > **Achievements** > **Account**. Type your RetroAchievements user name, then your
    password, on upstream's keyboard (START goes on to the next step). Only the login token that comes back is kept, in `Config/achievements.txt`; the
    password is not.
 2. Start a game. A notice shows how many of its achievements you have, and each unlock pops up
@@ -139,8 +140,12 @@ and is checked against the sha256 in the manifest. Versions compare as `1.14.0` 
 `1.14.0-net.1` < `1.14.0-net.2` < `1.15.0-net.1`.
 
 The release workflow writes `versions.json` once a release's zip is up and commits it to `net`,
-so nothing needs doing by hand. Its BaseOS entry follows pvaibhav/BaseOS's releases, as
-upstream's does.
+so nothing needs doing by hand.
+
+BaseOS is never updated over the air in this fork: the check leaves it out, and the manifest
+has no BaseOS entry. This fork's BaseOS (with the charging screen) goes on from the card: copy
+its `baseos-rg35xxh-<version>.bosupd` to the root of the SD card and restart. BaseOS applies it
+at boot, as it does any update file it finds there.
 
 ### Link play
 
